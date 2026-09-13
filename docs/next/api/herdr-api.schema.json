@@ -4331,6 +4331,33 @@
           ],
           "type": "object"
         },
+        "TabNameForPaneParams": {
+          "description": "Guarded naming of the tab that holds a pane. Unlike `tab.rename`, this never\nreplaces a name a person set unless the caller opts out of the guard.",
+          "properties": {
+            "if_auto_named": {
+              "default": true,
+              "description": "Apply only when the tab has no custom name, or when its custom name was\napplied by an earlier `tab.name_for_pane` call. Defaults to true.",
+              "type": "boolean"
+            },
+            "if_single_pane": {
+              "default": true,
+              "description": "Apply only when the target pane is the tab's only pane. Defaults to true.",
+              "type": "boolean"
+            },
+            "label": {
+              "type": "string"
+            },
+            "pane_id": {
+              "description": "Public pane id such as `w4B:p2`; the containing tab is named.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "label"
+          ],
+          "type": "object"
+        },
         "TabRenameParams": {
           "properties": {
             "label": {
@@ -5201,6 +5228,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/TabRenameParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "tab.name_for_pane",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TabNameForPaneParams"
             }
           },
           "required": [
@@ -9565,6 +9608,39 @@
               "type": "object"
             },
             {
+              "description": "Result of `tab.name_for_pane`. `applied: false` is a normal outcome\nexplained by `reason`; `label` is the tab's label after the call.",
+              "properties": {
+                "applied": {
+                  "type": "boolean"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "reason": {
+                  "$ref": "#/schemas/success_response/$defs/TabNameForPaneReason"
+                },
+                "tab_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "tab_name_for_pane",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "applied",
+                "tab_id",
+                "workspace_id",
+                "label",
+                "reason"
+              ],
+              "type": "object"
+            },
+            {
               "properties": {
                 "agent": {
                   "$ref": "#/schemas/success_response/$defs/AgentInfo"
@@ -10601,6 +10677,11 @@
               "default": false,
               "description": "Whether this server supports explicit client-shell surface interest.",
               "type": "boolean"
+            },
+            "tab_name_for_pane": {
+              "default": false,
+              "description": "Whether this server supports the guarded `tab.name_for_pane` method.",
+              "type": "boolean"
             }
           },
           "required": [
@@ -10723,6 +10804,31 @@
             "agent_status"
           ],
           "type": "object"
+        },
+        "TabNameForPaneReason": {
+          "oneOf": [
+            {
+              "enum": [
+                "applied"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "unchanged",
+              "description": "The tab already carries this label from an earlier `tab.name_for_pane`.",
+              "type": "string"
+            },
+            {
+              "const": "custom_name_present",
+              "description": "A person or `tab.rename` named the tab and `if_auto_named` is set.",
+              "type": "string"
+            },
+            {
+              "const": "multiple_panes",
+              "description": "The tab holds other panes and `if_single_pane` is set.",
+              "type": "string"
+            }
+          ]
         },
         "WorkspaceInfo": {
           "properties": {

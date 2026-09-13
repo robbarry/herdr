@@ -26,7 +26,7 @@ pub use self::{
         derive_label_from_cwd, fallback_label_from_cwd, git_branch, git_space_metadata,
         git_status_cache_key, GitSpaceMetadata, GitStatusCacheEntry, GitStatusRefreshDemand,
     },
-    tab::{NewPane, Tab},
+    tab::{NewPane, Tab, TabNameSource},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1178,6 +1178,7 @@ impl Workspace {
         panes.insert(root_id, PaneState::new(terminal_id));
         let tab = Tab {
             custom_name: None,
+            custom_name_source: TabNameSource::User,
             number: 1,
             root_pane: root_id,
             layout,
@@ -1234,6 +1235,7 @@ impl Workspace {
         panes.insert(root_id, PaneState::new(TerminalId::alloc()));
         let tab = Tab {
             custom_name: name.map(str::to_string),
+            custom_name_source: TabNameSource::User,
             number: self.next_public_tab_number,
             root_pane: root_id,
             layout,

@@ -36,4 +36,7 @@ pub struct ServerCapabilities {
     /// Supports connection-scoped `server.ssh_agent.register` on the local JSON API.
     #[serde(default)]
     pub ssh_agent_registration: bool,
+    /// Whether this server supports the guarded `tab.name_for_pane` method.
+    #[serde(default)]
+    pub tab_name_for_pane: bool,
 }

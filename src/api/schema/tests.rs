@@ -764,6 +764,68 @@ fn agent_status_request_values_remain_strict() {
 }
 
 #[test]
+fn tab_name_for_pane_request_and_response_round_trip() {
+    let request = Request {
+        id: "req_1".into(),
+        method: Method::TabNameForPane(TabNameForPaneParams {
+            pane_id: "w4B:p2".into(),
+            label: "dott".into(),
+            if_auto_named: false,
+            if_single_pane: true,
+        }),
+    };
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["method"], "tab.name_for_pane");
+    assert_eq!(json["params"]["if_auto_named"], false);
+    let restored: Request = serde_json::from_value(json).unwrap();
+    assert_eq!(restored, request);
+
+    let guards_default_on: Request = serde_json::from_str(
+        r#"{"id":"req_2","method":"tab.name_for_pane","params":{"pane_id":"w4B:p2","label":"dott"}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        guards_default_on.method,
+        Method::TabNameForPane(TabNameForPaneParams {
+            pane_id: "w4B:p2".into(),
+            label: "dott".into(),
+            if_auto_named: true,
+            if_single_pane: true,
+        })
+    );
+
+    let response = SuccessResponse {
+        id: "req_1".into(),
+        result: ResponseResult::TabNameForPane {
+            applied: false,
+            tab_id: "w4B:t2".into(),
+            workspace_id: "w4B".into(),
+            label: "review".into(),
+            reason: TabNameForPaneReason::CustomNamePresent,
+        },
+    };
+    let json = serde_json::to_value(&response).unwrap();
+    assert_eq!(json["result"]["type"], "tab_name_for_pane");
+    assert_eq!(json["result"]["reason"], "custom_name_present");
+    let restored: SuccessResponse = serde_json::from_value(json).unwrap();
+    assert_eq!(restored, response);
+    for (reason, wire) in [
+        (TabNameForPaneReason::Applied, "\"applied\""),
+        (TabNameForPaneReason::Unchanged, "\"unchanged\""),
+        (TabNameForPaneReason::MultiplePanes, "\"multiple_panes\""),
+    ] {
+        assert_eq!(serde_json::to_string(&reason).unwrap(), wire);
+    }
+}
+
+#[test]
+fn server_capabilities_default_tab_name_for_pane_off() {
+    let capabilities: ServerCapabilities =
+        serde_json::from_str(r#"{"live_handoff":true}"#).unwrap();
+    assert!(!capabilities.tab_name_for_pane);
+}
+
+#[test]
 fn success_response_round_trips() {
     let response = SuccessResponse {
         id: "req_1".into(),
@@ -777,6 +839,7 @@ fn success_response_round_trips() {
                 surface_interest: true,
                 health_check: true,
                 ssh_agent_registration: false,
+                tab_name_for_pane: true,
             }),
         },
     };

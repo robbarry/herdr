@@ -17,7 +17,7 @@ use super::plugins::{
 };
 use super::server::ServerCapabilities;
 use super::session::SessionSnapshot;
-use super::tabs::TabInfo;
+use super::tabs::{TabInfo, TabNameForPaneReason};
 use super::workspaces::WorkspaceInfo;
 use super::worktrees::{WorktreeInfo, WorktreeSourceInfo};
 
@@ -93,6 +93,15 @@ pub enum ResponseResult {
     },
     TabList {
         tabs: Vec<TabInfo>,
+    },
+    /// Result of `tab.name_for_pane`. `applied: false` is a normal outcome
+    /// explained by `reason`; `label` is the tab's label after the call.
+    TabNameForPane {
+        applied: bool,
+        tab_id: String,
+        workspace_id: String,
+        label: String,
+        reason: TabNameForPaneReason,
     },
     AgentInfo {
         agent: AgentInfo,

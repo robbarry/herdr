@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::api::schema::{TabCreateParams, TabListParams, TabRenameParams};
+use crate::api::schema::{TabCreateParams, TabListParams, TabNameForPaneParams, TabRenameParams};
 
 pub(super) fn run_tab_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
@@ -14,6 +14,7 @@ pub(super) fn run_tab_command(args: &[String]) -> std::io::Result<i32> {
         "get" => tab_get(&args[1..]),
         "focus" => tab_focus(&args[1..]),
         "rename" => tab_rename(&args[1..]),
+        "name-for-pane" => tab_name_for_pane(&args[1..]),
         "close" => tab_close(&args[1..]),
         "help" | "--help" | "-h" => {
             print_tab_help();
@@ -161,6 +162,39 @@ fn tab_rename(args: &[String]) -> std::io::Result<i32> {
     })
 }
 
+fn tab_name_for_pane(args: &[String]) -> std::io::Result<i32> {
+    const USAGE: &str =
+        "usage: herdr tab name-for-pane <pane_id> <label> [--even-if-named] [--even-if-shared]";
+    let mut pane_id = None;
+    let mut label_words = Vec::new();
+    let mut if_auto_named = true;
+    let mut if_single_pane = true;
+
+    for arg in args {
+        match arg.as_str() {
+            "--even-if-named" => if_auto_named = false,
+            "--even-if-shared" => if_single_pane = false,
+            other if other.starts_with("--") => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+            other if pane_id.is_none() => pane_id = Some(super::normalize_pane_id(other)),
+            other => label_words.push(other),
+        }
+    }
+    let (Some(pane_id), false) = (pane_id, label_words.is_empty()) else {
+        eprintln!("{USAGE}");
+        return Ok(2);
+    };
+
+    super::runtime::tab_name_for_pane(TabNameForPaneParams {
+        pane_id,
+        label: label_words.join(" "),
+        if_auto_named,
+        if_single_pane,
+    })
+}
+
 fn tab_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
         eprintln!("usage: herdr tab close <tab_id>");
@@ -183,5 +217,6 @@ fn print_tab_help() {
     eprintln!("  herdr tab get <tab_id>");
     eprintln!("  herdr tab focus <tab_id>");
     eprintln!("  herdr tab rename <tab_id> <label>");
+    eprintln!("  herdr tab name-for-pane <pane_id> <label> [--even-if-named] [--even-if-shared]");
     eprintln!("  herdr tab close <tab_id>");
 }

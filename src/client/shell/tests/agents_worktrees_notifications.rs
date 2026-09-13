@@ -819,7 +819,7 @@ fn muted_agent_sidebar_rows_do_not_stack_terminal_faint() {
     let row = state.hits.agents.first().expect("agent row hit").0;
     let buffer = frame.to_ratatui_buffer().expect("agent sidebar buffer");
 
-    for (label, needle) in [("tab", "second"), ("agent", "reviewer"), ("separator", "·")] {
+    for (label, needle) in [("tab", "second"), ("runtime", "pi"), ("separator", "·")] {
         let (x, y) = cell_symbol_position(&frame, row, needle);
         let cell = buffer.cell((x, y)).expect("muted sidebar cell");
         assert!(

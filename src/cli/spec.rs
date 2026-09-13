@@ -304,6 +304,14 @@ fn tab_command() -> Command {
                 .arg(required("tab_id", "TAB_ID"))
                 .arg(required("label", "LABEL").num_args(1..)),
         )
+        .subcommand(
+            Command::new("name-for-pane")
+                .about("Name a pane's tab unless a person named it or it holds other panes")
+                .arg(required("pane_id", "PANE_ID"))
+                .arg(required("label", "LABEL").num_args(1..))
+                .arg(flag("even-if-named").help("Replace a name set by a person or tab rename"))
+                .arg(flag("even-if-shared").help("Apply even when the tab holds other panes")),
+        )
         .subcommand(id_command("close", "tab_id", "Close a tab"))
 }
 
@@ -1149,6 +1157,19 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(shells.contains(&"zsh".to_string()));
         assert!(shells.contains(&"fish".to_string()));
+    }
+
+    #[test]
+    fn spec_describes_tab_name_for_pane_guard_flags() {
+        let cmd = super::command();
+        let name_for_pane = command_path(&cmd, &["tab", "name-for-pane"]);
+        let ids: Vec<String> = name_for_pane
+            .get_arguments()
+            .map(|arg| arg.get_id().to_string())
+            .collect();
+        for expected in ["pane_id", "label", "even-if-named", "even-if-shared"] {
+            assert!(ids.contains(&expected.to_string()), "missing {expected}");
+        }
     }
 
     #[test]

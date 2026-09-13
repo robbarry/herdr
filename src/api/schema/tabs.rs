@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::AgentStatus;
+use super::common::{default_true, AgentStatus};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TabCreateParams {
@@ -28,6 +28,34 @@ pub struct TabListParams {
 pub struct TabRenameParams {
     pub tab_id: String,
     pub label: String,
+}
+
+/// Guarded naming of the tab that holds a pane. Unlike `tab.rename`, this never
+/// replaces a name a person set unless the caller opts out of the guard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct TabNameForPaneParams {
+    /// Public pane id such as `w4B:p2`; the containing tab is named.
+    pub pane_id: String,
+    pub label: String,
+    /// Apply only when the tab has no custom name, or when its custom name was
+    /// applied by an earlier `tab.name_for_pane` call. Defaults to true.
+    #[serde(default = "default_true")]
+    pub if_auto_named: bool,
+    /// Apply only when the target pane is the tab's only pane. Defaults to true.
+    #[serde(default = "default_true")]
+    pub if_single_pane: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TabNameForPaneReason {
+    Applied,
+    /// The tab already carries this label from an earlier `tab.name_for_pane`.
+    Unchanged,
+    /// A person or `tab.rename` named the tab and `if_auto_named` is set.
+    CustomNamePresent,
+    /// The tab holds other panes and `if_single_pane` is set.
+    MultiplePanes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
