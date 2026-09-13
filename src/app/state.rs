@@ -837,6 +837,8 @@ pub struct AppState {
     pub show_agent_labels_on_pane_borders: bool,
     pub tab_bar_right: Vec<TabBarStatusSegment>,
     pub tab_bar_right_separator: String,
+    /// Latest provider account usage readings, at most one per polled provider.
+    pub account_usage: Vec<crate::account_usage::AccountUsageMeter>,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`. See `[experimental] reveal_hidden_cursor_for_cjk_ime`.
     pub reveal_hidden_cursor_for_cjk_ime: bool,
@@ -1079,6 +1081,7 @@ impl AppState {
             show_agent_labels_on_pane_borders: false,
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: " ".into(),
+            account_usage: Vec::new(),
             reveal_hidden_cursor_for_cjk_ime: false,
             cjk_ime_agent_filter_configured: false,
             cjk_ime_agents: Vec::new(),

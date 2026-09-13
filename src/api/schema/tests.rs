@@ -274,6 +274,56 @@ fn request_round_trips_for_agent_explain() {
 }
 
 #[test]
+fn account_usage_get_request_and_response_round_trip() {
+    let request = Request {
+        id: "req_usage".into(),
+        method: Method::AccountUsageGet(EmptyParams::default()),
+    };
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["method"], "account_usage.get");
+    assert_eq!(serde_json::from_value::<Request>(json).unwrap(), request);
+
+    let response = SuccessResponse {
+        id: "req_usage".into(),
+        result: ResponseResult::AccountUsage {
+            enabled: true,
+            meters: vec![AccountUsageInfo {
+                provider: AccountUsageProvider::Claude,
+                plan_type: None,
+                windows: vec![AccountUsageWindowInfo {
+                    kind: "weekly_scoped".into(),
+                    label: "fable".into(),
+                    scope_model: Some("Fable".into()),
+                    used_percent: 2.0,
+                    remaining_percent: 98,
+                    resets_at_unix: Some(1_789_905_599),
+                    window_minutes: Some(10_080),
+                    severity: Some("normal".into()),
+                    active: None,
+                }],
+                fetched_at_unix: 1_789_300_000,
+                stale: false,
+                source: "claude_oauth_usage".into(),
+            }],
+        },
+    };
+    let json = serde_json::to_value(&response).unwrap();
+    assert_eq!(json["result"]["type"], "account_usage");
+    assert_eq!(json["result"]["meters"][0]["provider"], "claude");
+    assert_eq!(
+        json["result"]["meters"][0]["windows"][0]["remaining_percent"],
+        98
+    );
+    assert!(json["result"]["meters"][0]["windows"][0]
+        .get("active")
+        .is_none());
+    assert_eq!(
+        serde_json::from_value::<SuccessResponse>(json).unwrap(),
+        response
+    );
+}
+
+#[test]
 fn integration_list_request_and_response_round_trip() {
     let request = Request {
         id: "req_integrations".into(),

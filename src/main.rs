@@ -11,6 +11,7 @@ const NESTED_HERDR_MESSAGES: [&str; 6] = [
     "recursion detected. base case not found. aborting.",
 ];
 
+mod account_usage;
 mod agent_resume;
 mod agent_view_eval;
 mod api;
@@ -131,6 +132,13 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # Check herdr.dev for remote agent-detection manifest updates in the background.
 # manifest_check = true
+
+[account_usage]
+# Poll your own Claude and Codex subscription usage in the background and show
+# the remaining capacity per rate-limit window in the sidebar. Claude is read
+# through the Claude Code login on this machine; Codex through `codex app-server`.
+# No model calls are made and no tokens are logged or stored.
+# enabled = true
 
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
