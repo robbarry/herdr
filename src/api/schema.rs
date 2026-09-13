@@ -78,6 +78,7 @@ operations::define_operations! {
     TabGet(TabTarget) => "tab.get", false, false;
     TabFocus(TabTarget) => "tab.focus", true, true;
     TabRename(TabRenameParams) => "tab.rename", true, true;
+    TabNameForPane(TabNameForPaneParams) => "tab.name_for_pane", true, false;
     TabMove(TabMoveParams) => "tab.move", true, true;
     TabClose(TabTarget) => "tab.close", true, true;
     AgentList(EmptyParams) => "agent.list", false, false;

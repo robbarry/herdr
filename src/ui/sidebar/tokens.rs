@@ -18,6 +18,7 @@ pub(crate) enum ResolvedTokenKind {
     Tab(String),
     Pane(String),
     Agent(String),
+    Runtime(String),
     TerminalTitle(String),
     Branch(String),
     GitStatus { ahead: usize, behind: usize },
@@ -33,6 +34,7 @@ impl ResolvedTokenKind {
             | Self::Tab(value)
             | Self::Pane(value)
             | Self::Agent(value)
+            | Self::Runtime(value)
             | Self::TerminalTitle(value)
             | Self::Branch(value)
             | Self::Custom(value) => Some(value),
@@ -58,10 +60,18 @@ pub(crate) struct AgentTokenContext<'a> {
     pub(crate) tab: Option<&'a str>,
     pub(crate) pane: Option<&'a str>,
     pub(crate) agent_label: Option<&'a str>,
+    /// Detected agent kind label, independent of reported display names.
+    pub(crate) runtime: Option<&'a str>,
     pub(crate) terminal_title: Option<&'a str>,
     pub(crate) terminal_title_stripped: Option<&'a str>,
     pub(crate) canonical_agent: Option<crate::detect::Agent>,
     pub(crate) tokens: &'a std::collections::HashMap<String, String>,
+}
+
+/// A tab named after its agent (for example by `tab.name_for_pane`) would
+/// print the same word twice in a row layout that shows both tokens.
+fn tab_repeats_agent(tab: &str, agent_label: Option<&str>) -> bool {
+    agent_label.is_some_and(|agent| agent.trim().eq_ignore_ascii_case(tab.trim()))
 }
 
 pub(crate) fn agent_rows(
@@ -90,6 +100,7 @@ pub(crate) fn agent_rows(
                         }
                         AgentSidebarToken::Tab => context
                             .tab
+                            .filter(|tab| !tab_repeats_agent(tab, context.agent_label))
                             .map(|value| ResolvedTokenKind::Tab(value.to_string())),
                         AgentSidebarToken::Pane => context
                             .pane
@@ -97,6 +108,9 @@ pub(crate) fn agent_rows(
                         AgentSidebarToken::Agent => context
                             .agent_label
                             .map(|value| ResolvedTokenKind::Agent(value.to_string())),
+                        AgentSidebarToken::Runtime => context
+                            .runtime
+                            .map(|value| ResolvedTokenKind::Runtime(value.to_string())),
                         AgentSidebarToken::TerminalTitle => context
                             .terminal_title
                             .map(|value| ResolvedTokenKind::TerminalTitle(value.to_string())),
@@ -223,11 +237,41 @@ mod tests {
             tab: entry.tab.as_deref(),
             pane: entry.pane.as_deref(),
             agent_label: entry.agent_label.as_deref(),
+            runtime: entry.canonical_agent.map(crate::detect::agent_label),
             terminal_title: entry.terminal_title.as_deref(),
             terminal_title_stripped: entry.terminal_title_stripped.as_deref(),
             canonical_agent: entry.canonical_agent,
             tokens: &entry.tokens,
         }
+    }
+
+    #[test]
+    fn tab_token_is_dropped_when_it_repeats_the_agent_label() {
+        let config = AgentsSidebarConfig {
+            rows: vec![
+                vec![AgentSidebarToken::Workspace, AgentSidebarToken::Tab],
+                vec![AgentSidebarToken::Agent],
+            ],
+            rows_by_agent: Default::default(),
+            row_gap: 0,
+        };
+        let mut named = entry();
+        named.tab = Some("Pi ".into());
+        let rows = agent_rows(&config, context(&named), "idle");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].len(),
+            1,
+            "tab token should be elided: {:?}",
+            rows[0]
+        );
+        assert!(matches!(rows[0][0].kind, ResolvedTokenKind::Workspace(_)));
+
+        let mut numbered = entry();
+        numbered.tab = Some("3".into());
+        let rows = agent_rows(&config, context(&numbered), "idle");
+        assert_eq!(rows[0].len(), 2);
+        assert!(matches!(&rows[0][1].kind, ResolvedTokenKind::Tab(label) if label == "3"));
     }
 
     #[test]

@@ -113,6 +113,9 @@ pub enum AgentSidebarToken {
     Tab,
     Pane,
     Agent,
+    /// Detected agent kind, such as `claude` or `codex`, independent of any
+    /// reported display name.
+    Runtime,
     TerminalTitle,
     TerminalTitleStripped,
     Custom(String),
@@ -277,6 +280,7 @@ fn agent_token_name(token: &AgentSidebarToken) -> String {
         AgentSidebarToken::Tab => "tab".into(),
         AgentSidebarToken::Pane => "pane".into(),
         AgentSidebarToken::Agent => "agent".into(),
+        AgentSidebarToken::Runtime => "runtime".into(),
         AgentSidebarToken::TerminalTitle => "terminal_title".into(),
         AgentSidebarToken::TerminalTitleStripped => "terminal_title_stripped".into(),
         AgentSidebarToken::Custom(name) => format!("${name}"),
@@ -338,6 +342,7 @@ impl<'de> Deserialize<'de> for AgentSidebarToken {
                 ("agent", Self::Agent),
                 ("terminal_title", Self::TerminalTitle),
                 ("terminal_title_stripped", Self::TerminalTitleStripped),
+                ("runtime", Self::Runtime),
             ],
         )
         .map_err(serde::de::Error::custom)?;
@@ -445,9 +450,9 @@ impl Default for AgentsSidebarConfig {
                     AgentSidebarToken::StateIcon,
                     AgentSidebarToken::Machine,
                     AgentSidebarToken::Workspace,
-                    AgentSidebarToken::Tab,
+                    AgentSidebarToken::Runtime,
                 ],
-                vec![AgentSidebarToken::Agent],
+                vec![AgentSidebarToken::Tab],
             ],
             rows_by_agent: BTreeMap::new(),
             row_gap: DEFAULT_SIDEBAR_ROW_GAP,
@@ -496,9 +501,9 @@ mod tests {
                     AgentSidebarToken::StateIcon,
                     AgentSidebarToken::Machine,
                     AgentSidebarToken::Workspace,
-                    AgentSidebarToken::Tab,
+                    AgentSidebarToken::Runtime,
                 ],
-                vec![AgentSidebarToken::Agent],
+                vec![AgentSidebarToken::Tab],
             ]
         );
         assert!(config.agents.rows_by_agent.is_empty());
