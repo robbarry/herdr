@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -948,6 +948,33 @@ pub struct ClientShellSnapshot {
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
     pub commands: Vec<ClientShellCommand>,
+    /// Endpoint-owned provider account usage readings. Empty when polling is
+    /// disabled or nothing has been fetched yet; absent on older endpoints.
+    #[serde(default)]
+    pub account_usage: Vec<ClientShellAccountUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellAccountUsage {
+    /// Provider label such as `claude` or `codex`.
+    pub provider: String,
+    pub plan_type: Option<String>,
+    /// The reading is older than the endpoint's freshness window.
+    pub stale: bool,
+    pub windows: Vec<ClientShellAccountUsageWindow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellAccountUsageWindow {
+    /// Short window label such as `5h`, `week`, or a scoped model family.
+    pub label: String,
+    pub remaining_percent: u8,
+    /// Seconds until the window resets, measured when the snapshot was built.
+    pub resets_in_seconds: Option<u64>,
+    pub severity: Option<String>,
+    /// Window length, so a client can place "now" within the window.
+    #[serde(default)]
+    pub window_minutes: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2858,6 +2885,18 @@ mod tests {
                 binding_labels: vec!["prefix+z".into()],
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
+            }],
+            account_usage: vec![ClientShellAccountUsage {
+                provider: "claude".into(),
+                plan_type: None,
+                stale: false,
+                windows: vec![ClientShellAccountUsageWindow {
+                    label: "5h".into(),
+                    remaining_percent: 62,
+                    resets_in_seconds: Some(7_200),
+                    severity: Some("normal".into()),
+                    window_minutes: Some(300),
+                }],
             }],
         }));
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();

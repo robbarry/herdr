@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub mod account_usage;
 pub mod agents;
 pub mod commands;
 pub mod common;
@@ -15,6 +16,7 @@ pub mod tabs;
 pub mod workspaces;
 pub mod worktrees;
 
+pub use account_usage::*;
 pub use agents::*;
 pub use commands::*;
 pub use common::*;
@@ -132,6 +134,7 @@ operations::define_operations! {
     EventsWait(EventsWaitParams) => "events.wait", false, false;
     PaneWaitForOutput(PaneWaitForOutputParams) => "pane.wait_for_output", false, false;
     IntegrationList(EmptyParams) => "integration.list", false, true;
+    AccountUsageGet(EmptyParams) => "account_usage.get", false, false;
     IntegrationInstall(IntegrationInstallParams) => "integration.install", false, true;
     IntegrationUninstall(IntegrationUninstallParams) => "integration.uninstall", false, false;
     PluginLink(PluginLinkParams) => "plugin.link", false, false;

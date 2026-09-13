@@ -11,6 +11,7 @@ pub(super) fn run_api_command(args: &[String]) -> std::io::Result<i32> {
     match subcommand {
         "schema" => api_schema(&args[1..]),
         "snapshot" => api_snapshot(&args[1..]),
+        "usage" => api_usage(&args[1..]),
         "help" | "--help" | "-h" => {
             print_api_help();
             Ok(0)
@@ -96,9 +97,77 @@ fn schema_summary_text() -> std::io::Result<String> {
     ))
 }
 
+fn api_usage(args: &[String]) -> std::io::Result<i32> {
+    let json = match args {
+        [] => false,
+        [flag] if flag == "--json" => true,
+        _ => {
+            eprintln!("usage: herdr api usage [--json]");
+            return Ok(2);
+        }
+    };
+
+    let response = super::send_request(&Request {
+        id: "cli:api:usage".into(),
+        method: Method::AccountUsageGet(EmptyParams::default()),
+    })?;
+    if json || response.get("error").is_some() {
+        return super::print_response(&response);
+    }
+    print!("{}", account_usage_text(&response["result"]));
+    Ok(0)
+}
+
+/// Renders `account_usage.get` as one line per window: remaining share and
+/// time until the window resets.
+fn account_usage_text(result: &serde_json::Value) -> String {
+    let mut out = String::new();
+    if result["enabled"].as_bool() == Some(false) {
+        out.push_str("account usage polling is disabled ([account_usage] enabled = false)\n");
+        return out;
+    }
+    let Some(meters) = result["meters"]
+        .as_array()
+        .filter(|meters| !meters.is_empty())
+    else {
+        out.push_str("no account usage readings yet\n");
+        return out;
+    };
+    let now_unix = crate::account_usage::unix_now();
+    for meter in meters {
+        let provider = meter["provider"].as_str().unwrap_or("-");
+        let plan = meter["plan_type"]
+            .as_str()
+            .map(|plan| format!(" ({plan})"))
+            .unwrap_or_default();
+        let stale = if meter["stale"].as_bool() == Some(true) {
+            " [stale]"
+        } else {
+            ""
+        };
+        out.push_str(&format!("{provider}{plan}{stale}\n"));
+        for window in meter["windows"].as_array().into_iter().flatten() {
+            let label = window["label"].as_str().unwrap_or("-");
+            let remaining = window["remaining_percent"].as_u64().unwrap_or(0);
+            let reset = window["resets_at_unix"]
+                .as_u64()
+                .map(|resets_at| {
+                    format!(
+                        ", resets in {}",
+                        crate::account_usage::format_countdown(resets_at.saturating_sub(now_unix))
+                    )
+                })
+                .unwrap_or_default();
+            out.push_str(&format!("  {label}: {remaining}% left{reset}\n"));
+        }
+    }
+    out
+}
+
 fn print_api_help() {
     eprintln!("herdr api commands:");
     eprintln!("  herdr api snapshot");
+    eprintln!("  herdr api usage [--json]");
     eprintln!("  herdr api schema [--json | --output PATH]");
 }
 
@@ -108,6 +177,39 @@ fn print_api_schema_help() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn account_usage_text_lists_windows_with_remaining_share() {
+        let now = crate::account_usage::unix_now();
+        let result = serde_json::json!({
+            "type": "account_usage",
+            "enabled": true,
+            "meters": [
+                {
+                    "provider": "claude",
+                    "plan_type": "max",
+                    "stale": false,
+                    "windows": [
+                        {"kind": "session", "label": "5h", "remaining_percent": 62, "resets_at_unix": now + 2 * 3600 + 5 * 60},
+                        {"kind": "weekly_scoped", "label": "fable", "remaining_percent": 98}
+                    ]
+                },
+                {"provider": "codex", "stale": true, "windows": [{"kind": "primary", "label": "week", "remaining_percent": 82}]}
+            ]
+        });
+        assert_eq!(
+            super::account_usage_text(&result),
+            "claude (max)\n  5h: 62% left, resets in 2h\n  fable: 98% left\ncodex [stale]\n  week: 82% left\n"
+        );
+        assert_eq!(
+            super::account_usage_text(&serde_json::json!({"enabled": true, "meters": []})),
+            "no account usage readings yet\n"
+        );
+        assert!(
+            super::account_usage_text(&serde_json::json!({"enabled": false, "meters": []}))
+                .contains("disabled")
+        );
+    }
+
     #[test]
     fn schema_summary_text_stays_human_sized() {
         let text = super::schema_summary_text().unwrap();

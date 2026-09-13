@@ -202,6 +202,12 @@ pub enum AppEvent {
         segment_index: usize,
         result: Result<Option<String>, String>,
     },
+    /// A background provider account usage poll finished.
+    AccountUsageFetched {
+        generation: u64,
+        provider: crate::account_usage::AccountUsageProvider,
+        result: Result<crate::account_usage::AccountUsageMeter, crate::account_usage::FetchError>,
+    },
     /// A plugin action or event command finished.
     PluginCommandFinished {
         log_id: String,

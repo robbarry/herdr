@@ -247,6 +247,7 @@ mod tests {
             panes: Vec::new(),
             agents: Vec::new(),
             commands: Vec::new(),
+            account_usage: Vec::new(),
         }
     }
 

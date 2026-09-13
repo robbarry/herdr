@@ -46,6 +46,20 @@ impl Default for UpdateConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
+pub struct AccountUsageConfig {
+    /// Poll the server owner's Claude and Codex subscription usage in the
+    /// background so clients can show remaining capacity.
+    pub enabled: bool,
+}
+
+impl Default for AccountUsageConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 fn default_update_channel() -> UpdateChannelConfig {
     default_update_channel_for_build(cfg!(windows), crate::build_info::is_preview())
 }
@@ -317,6 +331,7 @@ pub struct Config {
     pub session: SessionConfig,
     pub server: ServerConfig,
     pub update: UpdateConfig,
+    pub account_usage: AccountUsageConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub worktrees: WorktreesConfig,

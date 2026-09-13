@@ -3367,6 +3367,7 @@ impl HeadlessServer {
 
         changed |= self.app.release_host_appearance_if_ready(now);
         changed |= self.app.handle_tab_bar_status_tasks(now);
+        self.app.handle_account_usage_tasks(now);
 
         if geometry_dirty {
             self.app.pending_agent_resume_deadline = None;

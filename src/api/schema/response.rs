@@ -205,6 +205,11 @@ pub enum ResponseResult {
     IntegrationList {
         integrations: Vec<super::integrations::IntegrationInfo>,
     },
+    AccountUsage {
+        /// False when background polling is disabled by config or policy.
+        enabled: bool,
+        meters: Vec<super::account_usage::AccountUsageInfo>,
+    },
     IntegrationInstall {
         target: IntegrationTarget,
         details: IntegrationInstallResult,
