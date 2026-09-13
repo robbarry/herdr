@@ -34,6 +34,7 @@ mod settings;
 mod state;
 mod surface_patch;
 mod text_editor;
+mod usage_panel;
 mod word_selection;
 mod worktrees;
 use text_editor::TextEditor;

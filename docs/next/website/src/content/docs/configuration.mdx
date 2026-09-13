@@ -335,6 +335,17 @@ Command entries run immediately and then at `interval_seconds` without blocking 
 
 Separators appear only between visible entries. Set `tab_bar_right_separator = ""` for direct concatenation. On a narrow tab row, the complete status area yields to the tabs and their controls.
 
+### Account usage
+
+Herdr polls your own Claude and Codex subscription usage in the background and shows each rate-limit window in a `usage` footer at the bottom of the sidebar: a bar filled with the share already used, a tick marking how far into the window you are, and the time until the window resets. The bar is green while usage trails the tick, yellow when it matches it (that rate reaches the limit right at the reset), and red when usage is ahead of the window or less than 10% remains. Readings older than 15 minutes render dimmed and marked `stale`.
+
+```toml
+[account_usage]
+enabled = true
+```
+
+Polling runs on the Herdr server every 4 minutes, backing off after failures. Claude is read through the Claude Code login on the server machine (the credentials file, then the macOS Keychain item) using the same usage endpoint Claude Code's `/usage` shows. Codex is read through `codex app-server`, which authenticates from its own stored login. No model call is made, and no token is logged, stored, or passed on a command line. A provider that cannot be read on the server machine is simply absent from the panel. Set `enabled = false` to turn polling off; the panel then disappears. The same readings are available from `herdr api usage` and the `account_usage.get` socket method.
+
 ### Outer terminal window title
 
 Herdr emulates the terminals in its panes, so an `OSC 0`/`OSC 2` title written inside a pane stops at Herdr. Herdr writes its own title to the terminal it runs in, which is what window managers and terminal tab bars read:
