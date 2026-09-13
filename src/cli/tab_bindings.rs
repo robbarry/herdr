@@ -1,7 +1,7 @@
 use clap::Command;
 
 use crate::api::schema::tabs::{
-    tab_id, TabCreateProjection, TabListProjection, TabRenameProjection,
+    tab_id, TabCreateProjection, TabListProjection, TabNameForPaneProjection, TabRenameProjection,
 };
 use crate::api::schema::{Method, Request, TabTarget};
 
@@ -13,7 +13,7 @@ cli_projection! {
     }
 }
 
-const LEAVES: [Leaf; 6] = [
+const LEAVES: [Leaf; 7] = [
     Leaf {
         name: "list",
         about: "List tabs",
@@ -48,6 +48,15 @@ const LEAVES: [Leaf; 6] = [
         id: "cli:tab:rename",
         arguments: TabRenameProjection::arguments,
         method: |matches| TabRenameProjection::from_matches(matches).map(Method::TabRename),
+    },
+    Leaf {
+        name: "name-for-pane",
+        about: "Name a pane's tab unless a person named it or it holds other panes",
+        id: "cli:tab:name-for-pane",
+        arguments: TabNameForPaneProjection::arguments,
+        method: |matches| {
+            TabNameForPaneProjection::from_matches(matches).map(Method::TabNameForPane)
+        },
     },
     Leaf {
         name: "close",
@@ -113,6 +122,21 @@ mod tests {
             (
                 vec!["rename", "2", "two", "--words", "here"],
                 serde_json::json!({"id":"cli:tab:rename","method":"tab.rename","params":{"tab_id":"2","label":"two --words here"}}),
+            ),
+            (
+                vec!["name-for-pane", "w4B:p2", "boleyn"],
+                serde_json::json!({"id":"cli:tab:name-for-pane","method":"tab.name_for_pane","params":{"pane_id":"w4B:p2","label":"boleyn","if_auto_named":true,"if_single_pane":true}}),
+            ),
+            (
+                vec![
+                    "name-for-pane",
+                    "--even-if-named",
+                    "--even-if-shared",
+                    "w4B:p2",
+                    "two",
+                    "words",
+                ],
+                serde_json::json!({"id":"cli:tab:name-for-pane","method":"tab.name_for_pane","params":{"pane_id":"w4B:p2","label":"two words","if_auto_named":false,"if_single_pane":false}}),
             ),
             (
                 vec!["get", "2"],

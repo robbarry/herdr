@@ -494,7 +494,20 @@ fn selecting_a_reconnecting_machine_retries_it() {
 }
 
 fn state_with_scrollable_agents() -> (ClientShellState, ClientEndpointId) {
+    use crate::config::AgentSidebarToken;
+
     let (mut state, remote) = state_with_remote();
+    // Pin two-line agent rows so the list overflows by the same amount
+    // whatever the default row layout is.
+    state.config.agents.rows = vec![
+        vec![
+            AgentSidebarToken::StateIcon,
+            AgentSidebarToken::Machine,
+            AgentSidebarToken::Workspace,
+            AgentSidebarToken::Tab,
+        ],
+        vec![AgentSidebarToken::Agent],
+    ];
     for endpoint_id in [ClientEndpointId::Local, remote.clone()] {
         let mut projection = state
             .endpoints

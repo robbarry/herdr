@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ratatui::layout::Direction;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Notify};
 
 use crate::events::AppEvent;
@@ -35,8 +36,30 @@ enum SplitCommand<'a> {
     },
 }
 
+/// Who last set a tab's custom name. `tab.name_for_pane` only replaces names
+/// it applied itself, so a name typed by a person or set through `tab.rename`
+/// survives later automated naming.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabNameSource {
+    /// Set by a person or an explicit rename (UI rename, `tab.rename`,
+    /// `tab.create --label`, `layout.apply`).
+    #[default]
+    User,
+    /// Applied by the guarded `tab.name_for_pane` method.
+    NameForPane,
+}
+
+impl TabNameSource {
+    pub fn is_user(&self) -> bool {
+        matches!(self, Self::User)
+    }
+}
+
 pub struct Tab {
     pub custom_name: Option<String>,
+    /// Provenance of `custom_name`; meaningless while `custom_name` is `None`.
+    pub custom_name_source: TabNameSource,
     pub number: usize,
     /// Identity source for this tab's pane tree.
     pub root_pane: PaneId,
@@ -181,6 +204,7 @@ impl Tab {
         Ok((
             Self {
                 custom_name: None,
+                custom_name_source: TabNameSource::User,
                 number,
                 root_pane: root_id,
                 layout,
@@ -201,8 +225,22 @@ impl Tab {
         self.custom_name.is_none()
     }
 
+    /// True when the current custom name was applied by `tab.name_for_pane`
+    /// rather than by a person or an explicit rename.
+    pub fn is_named_for_pane(&self) -> bool {
+        self.custom_name.is_some() && self.custom_name_source == TabNameSource::NameForPane
+    }
+
+    /// Explicit rename: the name is treated as user-owned from now on.
     pub fn set_custom_name(&mut self, name: String) {
         self.custom_name = Some(name);
+        self.custom_name_source = TabNameSource::User;
+    }
+
+    /// Automated naming through `tab.name_for_pane`; a later call may replace it.
+    pub fn set_name_for_pane(&mut self, name: String) {
+        self.custom_name = Some(name);
+        self.custom_name_source = TabNameSource::NameForPane;
     }
 
     pub fn split_focused_command(
@@ -444,6 +482,7 @@ impl Tab {
         panes.insert(pane_id, moved.pane_state);
         Self {
             custom_name,
+            custom_name_source: TabNameSource::User,
             number,
             root_pane: pane_id,
             layout: TileLayout::from_saved(Node::Pane(pane_id), pane_id),

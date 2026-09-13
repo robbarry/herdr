@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::layout::Node;
 use crate::terminal::TerminalRuntimeRegistry;
-use crate::workspace::Workspace;
+use crate::workspace::{TabNameSource, Workspace};
 
 /// Current snapshot format version.
 pub(super) const SNAPSHOT_VERSION: u32 = 3;
@@ -87,6 +87,10 @@ struct LegacyWorkspaceSnapshot {
 pub struct TabSnapshot {
     #[serde(default)]
     pub custom_name: Option<String>,
+    /// Provenance of `custom_name`. Absent in session files written before
+    /// `tab.name_for_pane` existed, which loads as user-set.
+    #[serde(default, skip_serializing_if = "TabNameSource::is_user")]
+    pub custom_name_source: TabNameSource,
     pub layout: LayoutSnapshot,
     pub panes: HashMap<u32, PaneSnapshot>,
     pub zoomed: bool,
@@ -157,6 +161,7 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
         let identity_cwd = legacy_identity_cwd(&snap);
         let tab = TabSnapshot {
             custom_name: None,
+            custom_name_source: TabNameSource::User,
             layout: snap.layout,
             panes: snap.panes,
             zoomed: snap.zoomed,
@@ -393,6 +398,7 @@ fn capture_tab(
     }
     TabSnapshot {
         custom_name: tab.custom_name.clone(),
+        custom_name_source: tab.custom_name_source,
         layout: capture_node(tab.layout.root()),
         panes,
         zoomed: tab.zoomed,
@@ -734,6 +740,7 @@ mod tests {
                 next_public_tab_number: 2,
                 tabs: vec![TabSnapshot {
                     custom_name: Some("api".to_string()),
+                    custom_name_source: Default::default(),
                     layout: LayoutSnapshot::Split {
                         direction: DirectionSnapshot::Horizontal,
                         ratio: 0.5,
@@ -909,6 +916,34 @@ mod tests {
         assert_eq!(workspace.active_tab, second_tab);
         assert_eq!(workspace.tabs[0].custom_name.as_deref(), Some("main"));
         assert_eq!(workspace.tabs[1].custom_name.as_deref(), Some("logs"));
+    }
+
+    #[test]
+    fn capture_round_trips_tab_name_provenance() {
+        let mut state = state_with_workspaces(&["one"]);
+        let user_tab = state.workspaces[0].test_add_tab(None);
+        state.workspaces[0].tabs[0].set_name_for_pane("dott".into());
+        state.workspaces[0].tabs[user_tab].set_custom_name("review".into());
+
+        let snapshot = capture_from_state(&state);
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert_eq!(json.matches("\"custom_name_source\"").count(), 1);
+        assert!(json.contains("\"custom_name_source\":\"name_for_pane\""));
+
+        let restored = parse_snapshot(&json).unwrap();
+        let tabs = &restored.workspaces[0].tabs;
+        assert_eq!(tabs[0].custom_name.as_deref(), Some("dott"));
+        assert_eq!(tabs[0].custom_name_source, TabNameSource::NameForPane);
+        assert_eq!(tabs[user_tab].custom_name.as_deref(), Some("review"));
+        assert_eq!(tabs[user_tab].custom_name_source, TabNameSource::User);
+    }
+
+    #[test]
+    fn tab_snapshot_without_provenance_loads_as_user_named() {
+        let json = r#"{"custom_name":"review","layout":{"Pane":0},"panes":{},"zoomed":false}"#;
+        let tab: TabSnapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(tab.custom_name.as_deref(), Some("review"));
+        assert_eq!(tab.custom_name_source, TabNameSource::User);
     }
 
     #[test]
@@ -1435,6 +1470,7 @@ mod tests {
                 next_public_tab_number: 0,
                 tabs: vec![TabSnapshot {
                     custom_name: None,
+                    custom_name_source: Default::default(),
                     layout: LayoutSnapshot::Split {
                         direction: DirectionSnapshot::Horizontal,
                         ratio: 0.5,

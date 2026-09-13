@@ -303,6 +303,7 @@ pub(super) fn agent_row(
                 .as_deref()
                 .or_else(|| pane.and_then(|pane| pane.label.as_deref())),
             agent_label,
+            runtime: agent.agent.as_deref(),
             terminal_title: agent.terminal_title.as_deref(),
             terminal_title_stripped: agent.terminal_title_stripped.as_deref(),
             canonical_agent,

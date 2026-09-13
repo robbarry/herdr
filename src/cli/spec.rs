@@ -481,6 +481,19 @@ mod tests {
     }
 
     #[test]
+    fn spec_describes_tab_name_for_pane_guard_flags() {
+        let cmd = super::command();
+        let name_for_pane = command_path(&cmd, &["tab", "name-for-pane"]);
+        let ids: Vec<String> = name_for_pane
+            .get_arguments()
+            .map(|arg| arg.get_id().to_string())
+            .collect();
+        for expected in ["pane_id", "label", "even-if-named", "even-if-shared"] {
+            assert!(ids.contains(&expected.to_string()), "missing {expected}");
+        }
+    }
+
+    #[test]
     fn spec_matches_all_integration_targets() {
         let cmd = super::command();
         let install = command_path(&cmd, &["integration", "install"]);

@@ -378,8 +378,8 @@ The expanded desktop sidebar renders each inner array in `rows` as one line. The
 [ui.sidebar.agents]
 row_gap = 0
 rows = [
-  ["state_icon", "machine", "workspace", "tab"],
-  ["agent"],
+  ["state_icon", "machine", "workspace", "runtime"],
+  ["tab"],
 ]
 
 [ui.sidebar.spaces]
@@ -396,9 +396,10 @@ Agent rows accept these built-in tokens:
 - `state_text` — `idle`, `working`, `blocked`, `done`, or `unknown`, including a reported display label when present.
 - `machine` — machine label when the client has multiple machines; omitted for a single local machine.
 - `workspace` — workspace name.
-- `tab` — tab name when available.
+- `tab` — tab name when available. Omitted when it is the same as the agent name, so a tab named after its agent (for example through `tab.name_for_pane`) is not printed twice.
 - `pane` — pane name when available.
 - `agent` — detected or reported agent display name.
+- `runtime` — the detected agent kind, such as `claude` or `codex`, ignoring reported display names.
 - `terminal_title` — latest OSC 0/2 terminal title after safety normalization.
 - `terminal_title_stripped` — the terminal title with one recognized leading activity or spinner glyph and its following whitespace removed.
 - `$name` — custom pane metadata named `name`.
