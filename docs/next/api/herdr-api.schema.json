@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 22,
+  "protocol": 23,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -6108,6 +6108,22 @@
         {
           "properties": {
             "method": {
+              "const": "account_usage.get",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "integration.install",
               "type": "string"
             },
@@ -6540,6 +6556,117 @@
     },
     "success_response": {
       "$defs": {
+        "AccountUsageInfo": {
+          "description": "One provider account's latest usage reading.",
+          "properties": {
+            "fetched_at_unix": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "plan_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "provider": {
+              "$ref": "#/schemas/success_response/$defs/AccountUsageProvider"
+            },
+            "source": {
+              "type": "string"
+            },
+            "stale": {
+              "description": "True when the reading is older than the freshness window or the last\npoll failed long enough ago that the numbers may no longer hold.",
+              "type": "boolean"
+            },
+            "windows": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/AccountUsageWindowInfo"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "provider",
+            "windows",
+            "fetched_at_unix",
+            "stale",
+            "source"
+          ],
+          "type": "object"
+        },
+        "AccountUsageProvider": {
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "type": "string"
+        },
+        "AccountUsageWindowInfo": {
+          "description": "One provider rate-limit window as reported by the provider.",
+          "properties": {
+            "active": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "kind": {
+              "description": "Provider window kind: Claude `session`, `weekly_all`, `weekly_scoped`;\nCodex `primary`, `secondary`. Other kinds are passed through verbatim.",
+              "type": "string"
+            },
+            "label": {
+              "description": "Short human label such as `5h`, `week`, or the scoped model family.",
+              "type": "string"
+            },
+            "remaining_percent": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "resets_at_unix": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "scope_model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "severity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "used_percent": {
+              "format": "double",
+              "type": "number"
+            },
+            "window_minutes": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "used_percent",
+            "remaining_percent"
+          ],
+          "type": "object"
+        },
         "AgentInfo": {
           "properties": {
             "agent": {
@@ -10025,6 +10152,30 @@
               "required": [
                 "type",
                 "integrations"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "enabled": {
+                  "description": "False when background polling is disabled by config or policy.",
+                  "type": "boolean"
+                },
+                "meters": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/AccountUsageInfo"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "account_usage",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "enabled",
+                "meters"
               ],
               "type": "object"
             },

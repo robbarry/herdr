@@ -1192,6 +1192,25 @@ pub fn process_exists(pid: u32) -> bool {
     }
 }
 
+/// Reads the Claude Code login item from the login Keychain. Returns the raw
+/// JSON credentials blob; the caller extracts the access token and never
+/// persists it. Uses the Apple-signed binary by absolute path so a
+/// user-writable `PATH` entry cannot substitute it.
+pub(crate) fn claude_code_keychain_credentials() -> Option<Vec<u8>> {
+    let output = crate::noninteractive_process::command("/usr/bin/security")
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    output.status.success().then_some(output.stdout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

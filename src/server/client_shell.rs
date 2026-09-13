@@ -263,8 +263,36 @@ pub(super) fn snapshot_with_completions(
         panes,
         agents,
         commands: app.client_shell_command_manifest(),
+        account_usage: account_usage_projection(&app.state.account_usage),
     };
     (shell, completions)
+}
+
+fn account_usage_projection(
+    meters: &[crate::account_usage::AccountUsageMeter],
+) -> Vec<protocol::ClientShellAccountUsage> {
+    let now_unix = crate::account_usage::unix_now();
+    meters
+        .iter()
+        .map(|meter| protocol::ClientShellAccountUsage {
+            provider: meter.provider.label().to_owned(),
+            plan_type: meter.plan_type.clone(),
+            stale: meter.is_stale(now_unix),
+            windows: meter
+                .windows
+                .iter()
+                .map(|window| protocol::ClientShellAccountUsageWindow {
+                    label: crate::account_usage::window_label(window),
+                    remaining_percent: crate::account_usage::remaining_percent(window.used_percent),
+                    resets_in_seconds: window
+                        .resets_at_unix
+                        .map(|resets_at| resets_at.saturating_sub(now_unix)),
+                    severity: window.severity.clone(),
+                    window_minutes: window.window_minutes,
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 pub(super) struct RenderedPaneSurface {

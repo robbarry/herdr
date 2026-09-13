@@ -27,6 +27,7 @@ mod tab_bar_status;
 mod terminal_targets;
 mod terminal_titles;
 mod theme_sync;
+mod usage_poll;
 mod window_title;
 mod worktrees;
 
@@ -151,6 +152,7 @@ pub struct App {
     tab_bar_datetimes: Vec<tab_bar_status::TabBarDatetimeRuntime>,
     tab_bar_commands: Vec<tab_bar_status::TabBarCommandRuntime>,
     next_tab_bar_datetime_refresh: Option<Instant>,
+    pub(crate) usage_poll: usage_poll::Runtime,
     /// Parsed `ui.window_title` plus the hostname resolved when it was applied.
     window_title_template: Option<(crate::config::WindowTitleTemplate, String)>,
     pub(crate) persist_pane_history: bool,
@@ -542,6 +544,7 @@ impl App {
             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: String::new(),
+            account_usage: Vec::new(),
             reveal_hidden_cursor_for_cjk_ime: config.experimental.reveal_hidden_cursor_for_cjk_ime,
             cjk_ime_agent_filter_configured: !config.experimental.cjk_ime_agents.is_empty(),
             cjk_ime_agents: parse_cjk_ime_agents(&config.experimental.cjk_ime_agents),
@@ -664,6 +667,9 @@ impl App {
             tab_bar_datetimes: Vec::new(),
             tab_bar_commands: Vec::new(),
             next_tab_bar_datetime_refresh: None,
+            usage_poll: usage_poll::Runtime::new(
+                policy.background_updates && config.account_usage.enabled,
+            ),
             window_title_template: None,
             persist_pane_history: config.experimental.pane_history,
             last_render_at: None,
@@ -928,6 +934,10 @@ impl App {
                 "session.startup_per_agent_delay_ms changes require restarting Herdr; kept current setting"
                     .into(),
             );
+        }
+
+        if !invalid_section("account_usage") {
+            self.configure_account_usage(config.account_usage.enabled);
         }
 
         let graphics_config_valid = !invalid_section("terminal")

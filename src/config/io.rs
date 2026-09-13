@@ -5,6 +5,7 @@ use tracing::warn;
 use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
+    "account_usage",
     "advanced",
     "experimental",
     "keys",
@@ -334,6 +335,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.update = section,
+    );
+    load_live_section(
+        table,
+        "account_usage",
+        "account usage config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.account_usage = section,
     );
     load_live_section(
         table,

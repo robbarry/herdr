@@ -46,6 +46,11 @@ impl App {
                 self.handle_api_worktree_read_finished(*result);
                 changes_workspace
             }
+            AppEvent::AccountUsageFetched {
+                generation,
+                provider,
+                result,
+            } => self.handle_account_usage_fetched(generation, provider, result),
             ev @ AppEvent::TerminalBell { .. } => {
                 self.handle_internal_event(ev);
                 false
@@ -158,6 +163,16 @@ impl App {
         } = ev
         {
             let _ = self.handle_tab_bar_command_finished(generation, segment_index, result);
+            return Vec::new();
+        }
+
+        if let AppEvent::AccountUsageFetched {
+            generation,
+            provider,
+            result,
+        } = ev
+        {
+            let _ = self.handle_account_usage_fetched(generation, provider, result);
             return Vec::new();
         }
 
@@ -1216,6 +1231,23 @@ impl App {
             Method::PaneSendKeys(params) => return self.handle_pane_send_keys(request.id, params),
             Method::IntegrationList(_) => {
                 return self.handle_integration_list(request.id);
+            }
+            Method::AccountUsageGet(_) => {
+                let now_unix = crate::account_usage::unix_now();
+                SuccessResponse {
+                    id: request.id,
+                    result: ResponseResult::AccountUsage {
+                        enabled: self.usage_poll.enabled(),
+                        meters: self
+                            .state
+                            .account_usage
+                            .iter()
+                            .map(|meter| {
+                                crate::api::schema::AccountUsageInfo::from_meter(meter, now_unix)
+                            })
+                            .collect(),
+                    },
+                }
             }
             Method::IntegrationInstall(params) => {
                 return self.handle_integration_install(request.id, params);

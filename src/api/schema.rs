@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub mod account_usage;
 pub mod agents;
 pub mod commands;
 pub mod common;
@@ -14,6 +15,7 @@ pub mod tabs;
 pub mod workspaces;
 pub mod worktrees;
 
+pub use account_usage::*;
 pub use agents::*;
 pub use commands::*;
 pub use common::*;
@@ -223,6 +225,8 @@ pub enum Method {
     PaneWaitForOutput(PaneWaitForOutputParams),
     #[serde(rename = "integration.list")]
     IntegrationList(EmptyParams),
+    #[serde(rename = "account_usage.get")]
+    AccountUsageGet(EmptyParams),
     #[serde(rename = "integration.install")]
     IntegrationInstall(IntegrationInstallParams),
     #[serde(rename = "integration.uninstall")]

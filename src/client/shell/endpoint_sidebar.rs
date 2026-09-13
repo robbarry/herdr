@@ -249,6 +249,10 @@ pub(super) fn render_expanded(
     } else {
         Rect::new(area.right().saturating_sub(1), area.y, 1, area.height)
     };
+    let full_area = area;
+    let (area, usage_area) = active_snapshot.map_or((area, Rect::default()), |snapshot| {
+        super::usage_panel::reserve(area, snapshot)
+    });
     let (workspace_area, detail_area) =
         crate::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
     hits.sidebar_section_divider =
@@ -563,6 +567,10 @@ pub(super) fn render_expanded(
         state.agent_scroll,
         hits,
     );
+    if let Some(snapshot) = active_snapshot {
+        super::usage_panel::render(buffer, usage_area, snapshot, config);
+    }
+    let area = full_area;
     hits.sidebar_toggle = Rect::new(
         area.right().saturating_sub(2),
         area.bottom().saturating_sub(1),

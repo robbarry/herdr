@@ -109,6 +109,7 @@ Raw socket method names use dot notation:
 | Agent | `agent.list`, `agent.get`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.start`, `agent.view.set`, `agent.view.clear` |
 | Events | `events.subscribe`, `events.wait` |
 | Integrations | `integration.install`, `integration.uninstall` |
+| Account usage | `account_usage.get` |
 | Plugins | `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.action.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, `plugin.pane.close` |
 
 `agent.wait` is server-owned and event-driven. It pins the resolved pane occupant so a replacement cannot satisfy the wait. `agent.prompt` accepts an optional `wait` object with `until` and `timeout_ms`; this submits the prompt and starts the wait in one request, avoiding a race between separate calls. If the resolved agent is already `blocked`, `agent.prompt` returns `agent_blocked` without sending input or starting the wait.
@@ -924,6 +925,42 @@ Fields such as `last_check_unix`, `last_result`, `active_version`, `cached_remot
 The response contains the same explain object printed by `herdr agent explain --json`, including the final state, manifest source and version, matched rule, evaluated rule evidence, skip-state reason, idle fallback reason, and `screen_detection_skip_reason` when a full lifecycle hook authority makes screen rules non-authoritative.
 
 Clients need a running server that supports `agent.explain`; after upgrading Herdr, restart or live-handoff the server before relying on this method.
+
+`account_usage.get` returns the server owner's latest Claude and Codex subscription rate-limit windows, as polled in the background (see [Account usage](/docs/configuration/#account-usage)):
+
+```json
+{
+  "id": "req_3",
+  "result": {
+    "type": "account_usage",
+    "enabled": true,
+    "meters": [
+      {
+        "provider": "claude",
+        "windows": [
+          { "kind": "session", "label": "5h", "used_percent": 38, "remaining_percent": 62, "resets_at_unix": 1789345199, "window_minutes": 300, "severity": "normal", "active": true },
+          { "kind": "weekly_scoped", "label": "fable", "scope_model": "Fable", "used_percent": 2, "remaining_percent": 98, "resets_at_unix": 1789905599, "window_minutes": 10080, "severity": "normal" }
+        ],
+        "fetched_at_unix": 1789300000,
+        "stale": false,
+        "source": "claude_oauth_usage"
+      },
+      {
+        "provider": "codex",
+        "plan_type": "pro",
+        "windows": [
+          { "kind": "primary", "label": "week", "used_percent": 18, "remaining_percent": 82, "resets_at_unix": 1789810366, "window_minutes": 10080 }
+        ],
+        "fetched_at_unix": 1789300000,
+        "stale": false,
+        "source": "codex_app_server"
+      }
+    ]
+  }
+}
+```
+
+`enabled` is false when polling is turned off in config. `meters` is empty until the first successful poll and omits providers that cannot be read on the server machine. `stale` is true when the reading is older than 15 minutes. `plan_type`, `scope_model`, `resets_at_unix`, `window_minutes`, `severity`, and `active` are omitted when the provider did not report them.
 
 Errors look like this:
 

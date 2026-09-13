@@ -409,6 +409,13 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 
+/// Claude Code stores its login in the macOS Keychain; other platforms only
+/// have the credentials file, which the caller reads first.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn claude_code_keychain_credentials() -> Option<Vec<u8>> {
+    None
+}
+
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
