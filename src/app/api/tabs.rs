@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::api::schema::{
     EventData, EventEnvelope, EventKind, ResponseResult, TabCreateParams, TabListParams,
-    TabMoveParams, TabRenameParams, TabTarget,
+    TabMoveParams, TabNameForPaneParams, TabNameForPaneReason, TabRenameParams, TabTarget,
 };
 use crate::app::{App, Mode};
 
@@ -171,6 +171,82 @@ impl App {
         encode_success(id, ResponseResult::TabInfo { tab })
     }
 
+    /// Name the tab that holds `pane_id` without clobbering a person's name.
+    /// Every guard outcome is a success response with `applied: false`; only an
+    /// unknown pane or an empty label is an error.
+    pub(super) fn handle_tab_name_for_pane(
+        &mut self,
+        id: String,
+        params: TabNameForPaneParams,
+    ) -> String {
+        let TabNameForPaneParams {
+            pane_id,
+            label,
+            if_auto_named,
+            if_single_pane,
+        } = params;
+        let label = label.trim().to_string();
+        if label.is_empty() {
+            return encode_error(id, "invalid_label", "label must not be empty");
+        }
+        let Some((ws_idx, pane)) = self.parse_pane_id(&pane_id) else {
+            return pane_not_found(id, &pane_id);
+        };
+        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane) else {
+            return pane_not_found(id, &pane_id);
+        };
+        let workspace_id = self.public_workspace_id(ws_idx);
+        let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) else {
+            return pane_not_found(id, &pane_id);
+        };
+        let Some(tab) = self
+            .state
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+        else {
+            return pane_not_found(id, &pane_id);
+        };
+
+        let reason = if tab.is_named_for_pane() && tab.custom_name.as_deref() == Some(&label) {
+            TabNameForPaneReason::Unchanged
+        } else if if_single_pane && tab.panes.len() != 1 {
+            TabNameForPaneReason::MultiplePanes
+        } else if if_auto_named && !tab.is_auto_named() && !tab.is_named_for_pane() {
+            TabNameForPaneReason::CustomNamePresent
+        } else {
+            tab.set_name_for_pane(label.clone());
+            TabNameForPaneReason::Applied
+        };
+        let applied = reason == TabNameForPaneReason::Applied;
+        if applied {
+            crate::logging::tab_renamed(&workspace_id, &tab_id);
+            self.schedule_session_save();
+            self.emit_event(EventEnvelope {
+                event: EventKind::TabRenamed,
+                data: EventData::TabRenamed {
+                    tab_id: tab_id.clone(),
+                    workspace_id: workspace_id.clone(),
+                    label: label.clone(),
+                },
+            });
+        }
+        let label = self.state.workspaces[ws_idx]
+            .tab_display_name(tab_idx)
+            .unwrap_or(label);
+
+        encode_success(
+            id,
+            ResponseResult::TabNameForPane {
+                applied,
+                tab_id,
+                workspace_id,
+                label,
+                reason,
+            },
+        )
+    }
+
     pub(super) fn handle_tab_move(&mut self, id: String, params: TabMoveParams) -> String {
         let Some((ws_idx, tab_idx)) = self.parse_tab_id(&params.tab_id) else {
             return tab_not_found(id, &params.tab_id);
@@ -318,6 +394,10 @@ fn tab_not_found(id: String, tab_id: &str) -> String {
     encode_error(id, "tab_not_found", format!("tab {tab_id} not found"))
 }
 
+fn pane_not_found(id: String, pane_id: &str) -> String {
+    encode_error(id, "not_found", format!("pane {pane_id} not found"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{exiting_test_command, shutdown_test_runtimes};
@@ -429,6 +509,275 @@ mod tests {
                     && tabs[2].tab_id == moved_id
             )
         }));
+    }
+
+    fn app_with_single_pane_tab() -> (App, crate::api::EventHub, String) {
+        let event_hub = crate::api::EventHub::default();
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            api_rx,
+            event_hub.clone(),
+        );
+        app.state.workspaces = vec![Workspace::test_new("tabs")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.public_pane_id(0, root_pane).unwrap();
+        (app, event_hub, pane_id)
+    }
+
+    fn name_for_pane(
+        app: &mut App,
+        pane_id: &str,
+        label: &str,
+        if_auto_named: bool,
+        if_single_pane: bool,
+    ) -> ResponseResult {
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req".into(),
+            method: crate::api::schema::Method::TabNameForPane(TabNameForPaneParams {
+                pane_id: pane_id.into(),
+                label: label.into(),
+                if_auto_named,
+                if_single_pane,
+            }),
+        });
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        success.result
+    }
+
+    fn rename_tab(app: &mut App, tab_id: &str, label: &str) {
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "rename".into(),
+            method: crate::api::schema::Method::TabRename(TabRenameParams {
+                tab_id: tab_id.into(),
+                label: label.into(),
+            }),
+        });
+        serde_json::from_str::<SuccessResponse>(&response).unwrap();
+    }
+
+    #[test]
+    fn api_tab_name_for_pane_names_auto_named_single_pane_tab() {
+        let (mut app, event_hub, pane_id) = app_with_single_pane_tab();
+        let tab_id = app.public_tab_id(0, 0).unwrap();
+        let workspace_id = app.public_workspace_id(0);
+
+        let result = name_for_pane(&mut app, &pane_id, "  dott ", true, true);
+
+        assert_eq!(
+            result,
+            ResponseResult::TabNameForPane {
+                applied: true,
+                tab_id: tab_id.clone(),
+                workspace_id: workspace_id.clone(),
+                label: "dott".into(),
+                reason: TabNameForPaneReason::Applied,
+            }
+        );
+        let tab = &app.state.workspaces[0].tabs[0];
+        assert_eq!(tab.custom_name.as_deref(), Some("dott"));
+        assert!(tab.is_named_for_pane());
+        assert_eq!(
+            app.state.workspaces[0].tab_display_name(0).as_deref(),
+            Some("dott")
+        );
+        let events = event_hub.events_after(0);
+        assert!(events.iter().any(|(_, event)| matches!(
+            &event.data,
+            EventData::TabRenamed {
+                tab_id: renamed_tab,
+                workspace_id: renamed_workspace,
+                label,
+            } if renamed_tab == &tab_id && renamed_workspace == &workspace_id && label == "dott"
+        )));
+    }
+
+    #[test]
+    fn api_tab_name_for_pane_reports_unchanged_for_repeat_label() {
+        let (mut app, event_hub, pane_id) = app_with_single_pane_tab();
+        name_for_pane(&mut app, &pane_id, "dott", true, true);
+        let events_after_first = event_hub.events_after(0).len();
+
+        let result = name_for_pane(&mut app, &pane_id, "dott", true, true);
+
+        assert!(matches!(
+            result,
+            ResponseResult::TabNameForPane {
+                applied: false,
+                reason: TabNameForPaneReason::Unchanged,
+                ref label,
+                ..
+            } if label == "dott"
+        ));
+        assert_eq!(event_hub.events_after(0).len(), events_after_first);
+    }
+
+    #[test]
+    fn api_tab_name_for_pane_restamps_its_own_earlier_name() {
+        let (mut app, _event_hub, pane_id) = app_with_single_pane_tab();
+        name_for_pane(&mut app, &pane_id, "dott", true, true);
+
+        let result = name_for_pane(&mut app, &pane_id, "dott (resumed)", true, true);
+
+        assert!(matches!(
+            result,
+            ResponseResult::TabNameForPane {
+                applied: true,
+                reason: TabNameForPaneReason::Applied,
+                ..
+            }
+        ));
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].custom_name.as_deref(),
+            Some("dott (resumed)")
+        );
+    }
+
+    #[test]
+    fn api_tab_name_for_pane_keeps_user_names_unless_overridden() {
+        let (mut app, event_hub, pane_id) = app_with_single_pane_tab();
+        let tab_id = app.public_tab_id(0, 0).unwrap();
+        rename_tab(&mut app, &tab_id, "review");
+        let events_after_rename = event_hub.events_after(0).len();
+
+        let guarded = name_for_pane(&mut app, &pane_id, "dott", true, true);
+
+        assert_eq!(
+            guarded,
+            ResponseResult::TabNameForPane {
+                applied: false,
+                tab_id: tab_id.clone(),
+                workspace_id: app.public_workspace_id(0),
+                label: "review".into(),
+                reason: TabNameForPaneReason::CustomNamePresent,
+            }
+        );
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].custom_name.as_deref(),
+            Some("review")
+        );
+        assert_eq!(event_hub.events_after(0).len(), events_after_rename);
+
+        let forced = name_for_pane(&mut app, &pane_id, "dott", false, true);
+
+        assert!(matches!(
+            forced,
+            ResponseResult::TabNameForPane {
+                applied: true,
+                reason: TabNameForPaneReason::Applied,
+                ..
+            }
+        ));
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].custom_name.as_deref(),
+            Some("dott")
+        );
+        assert!(app.state.workspaces[0].tabs[0].is_named_for_pane());
+    }
+
+    #[test]
+    fn api_tab_name_for_pane_skips_shared_tabs_unless_overridden() {
+        let (mut app, _event_hub, pane_id) = app_with_single_pane_tab();
+        app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+
+        let guarded = name_for_pane(&mut app, &pane_id, "dott", true, true);
+
+        assert!(matches!(
+            guarded,
+            ResponseResult::TabNameForPane {
+                applied: false,
+                reason: TabNameForPaneReason::MultiplePanes,
+                ref label,
+                ..
+            } if label == "1"
+        ));
+        assert!(app.state.workspaces[0].tabs[0].is_auto_named());
+
+        let forced = name_for_pane(&mut app, &pane_id, "dott", true, false);
+
+        assert!(matches!(
+            forced,
+            ResponseResult::TabNameForPane {
+                applied: true,
+                reason: TabNameForPaneReason::Applied,
+                ..
+            }
+        ));
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].custom_name.as_deref(),
+            Some("dott")
+        );
+    }
+
+    #[test]
+    fn api_tab_name_for_pane_checks_unchanged_before_guards() {
+        let (mut app, _event_hub, pane_id) = app_with_single_pane_tab();
+        name_for_pane(&mut app, &pane_id, "dott", true, true);
+        app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+
+        let result = name_for_pane(&mut app, &pane_id, "dott", true, true);
+
+        assert!(matches!(
+            result,
+            ResponseResult::TabNameForPane {
+                applied: false,
+                reason: TabNameForPaneReason::Unchanged,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn api_tab_rename_resets_name_for_pane_provenance() {
+        let (mut app, _event_hub, pane_id) = app_with_single_pane_tab();
+        let tab_id = app.public_tab_id(0, 0).unwrap();
+        name_for_pane(&mut app, &pane_id, "dott", true, true);
+        rename_tab(&mut app, &tab_id, "dott");
+
+        assert!(!app.state.workspaces[0].tabs[0].is_named_for_pane());
+        let result = name_for_pane(&mut app, &pane_id, "dott", true, true);
+        assert!(matches!(
+            result,
+            ResponseResult::TabNameForPane {
+                applied: false,
+                reason: TabNameForPaneReason::CustomNamePresent,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn api_tab_name_for_pane_rejects_unknown_pane_and_empty_label() {
+        let (mut app, _event_hub, pane_id) = app_with_single_pane_tab();
+
+        let unknown = app.handle_api_request(crate::api::schema::Request {
+            id: "req".into(),
+            method: crate::api::schema::Method::TabNameForPane(TabNameForPaneParams {
+                pane_id: "w9:p9".into(),
+                label: "dott".into(),
+                if_auto_named: true,
+                if_single_pane: true,
+            }),
+        });
+        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&unknown).unwrap();
+        assert_eq!(error.error.code, "not_found");
+
+        let empty = app.handle_api_request(crate::api::schema::Request {
+            id: "req".into(),
+            method: crate::api::schema::Method::TabNameForPane(TabNameForPaneParams {
+                pane_id,
+                label: "   ".into(),
+                if_auto_named: true,
+                if_single_pane: true,
+            }),
+        });
+        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&empty).unwrap();
+        assert_eq!(error.error.code, "invalid_label");
+        assert!(app.state.workspaces[0].tabs[0].is_auto_named());
     }
 
     #[tokio::test]
