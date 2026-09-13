@@ -269,7 +269,7 @@ pub(super) fn set_mouse_capture(enabled: bool, sgr_pixels: bool) -> io::Result<(
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     #[cfg(windows)]
     if is_ssh_session() && windows_vti_input_backend_enabled() {
-        return crate::terminal_modes::set_windows_ssh_mouse_reporting(
+        return crate::terminal_modes::set_windows_mouse_reporting(
             &mut io::stdout(),
             enabled,
             sgr_pixels,
@@ -277,6 +277,11 @@ pub(super) fn set_mouse_capture(enabled: bool, sgr_pixels: bool) -> io::Result<(
     }
     if enabled {
         execute!(io::stdout(), EnableMouseCapture)?;
+        // Crossterm only sets console flags on Windows. An already-enabled
+        // mouse-input flag does not undo the VT reporting reset above.
+        #[cfg(windows)]
+        crate::terminal_modes::set_windows_mouse_reporting(&mut io::stdout(), true, sgr_pixels)?;
+        #[cfg(not(windows))]
         if sgr_pixels {
             io::stdout().write_all(b"\x1b[?1016h")?;
             io::stdout().flush()?;
