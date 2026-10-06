@@ -947,6 +947,7 @@ fn sidebar_scrollbars_use_proportional_shared_geometry_and_drag() {
             title: None,
             terminal_title: None,
             terminal_title_stripped: None,
+            branch: None,
             agent_status: AgentStatus::Idle,
             state_change_seq: index,
             state_labels: Vec::new(),

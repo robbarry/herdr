@@ -4893,6 +4893,7 @@ fn unchanged_git_refresh_does_not_request_headless_render() {
             space: None,
         }],
         cache_updates: Vec::new(),
+        agent_branches: Vec::new(),
     });
 
     assert!(!changed);
@@ -4951,6 +4952,7 @@ fn changed_git_refresh_requests_headless_render() {
             space: None,
         }],
         cache_updates: Vec::new(),
+        agent_branches: Vec::new(),
     });
 
     assert!(changed);

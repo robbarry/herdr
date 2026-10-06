@@ -306,6 +306,7 @@ pub(super) fn agent_row(
             runtime: agent.agent.as_deref(),
             terminal_title: agent.terminal_title.as_deref(),
             terminal_title_stripped: agent.terminal_title_stripped.as_deref(),
+            branch: agent.branch.as_deref(),
             canonical_agent,
             tokens: &tokens,
         },
