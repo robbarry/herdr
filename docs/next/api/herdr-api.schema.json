@@ -6731,6 +6731,13 @@
             "agent_status": {
               "$ref": "#/schemas/success_response/$defs/AgentStatus"
             },
+            "branch": {
+              "description": "Git branch checked out in the agent's working directory.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "completion_seq": {
               "description": "The current idle transition completed work, independently of who has viewed it.",
               "format": "uint64",

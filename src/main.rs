@@ -353,7 +353,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # accent = "cyan"
 
 # Expanded agent rows. Built-ins are state_icon, state_text, machine, workspace, tab,
-# pane, agent, terminal_title, and terminal_title_stripped.
+# pane, agent, runtime, terminal_title, terminal_title_stripped, and branch.
 # Custom values reported through pane metadata use a $name token.
 # A token occurrence may be styled with { token = "workspace", fg = "#89b4fa", bold = true, dim = false }.
 # Omitted style fields preserve the contextual default.

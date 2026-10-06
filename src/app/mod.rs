@@ -127,6 +127,9 @@ pub struct App {
         Vec<(String, crate::workspace::WorktreeSpaceMembership)>,
     pub(crate) restored_worktree_validation_retry_at: Option<Instant>,
     pub(crate) git_status_cache: HashMap<std::path::PathBuf, crate::workspace::GitStatusCacheEntry>,
+    /// Branch checked out in each agent terminal's working directory, kept
+    /// only while the Agents sidebar shows a branch token.
+    pub(crate) agent_git_branches: HashMap<crate::terminal::TerminalId, String>,
     pub(crate) pending_api_worktree_creates: HashMap<std::path::PathBuf, u64>,
     pub(crate) worktree_read_slots: std::sync::Arc<tokio::sync::Semaphore>,
     pub(crate) pending_api_worktree_removes: HashMap<String, u64>,
@@ -638,6 +641,7 @@ impl App {
             pending_restored_worktree_spaces: Vec::new(),
             restored_worktree_validation_retry_at: None,
             git_status_cache: HashMap::new(),
+            agent_git_branches: HashMap::new(),
             pending_api_worktree_creates: HashMap::new(),
             worktree_read_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(8)),
             pending_api_worktree_removes: HashMap::new(),
@@ -1134,6 +1138,7 @@ mod tests {
         let changed = app.handle_internal_event_with_render_impact(AppEvent::GitStatusRefreshed {
             results: Vec::new(),
             cache_updates: Vec::new(),
+            agent_branches: Vec::new(),
         });
 
         assert!(!changed);
@@ -1181,6 +1186,7 @@ mod tests {
         app.handle_internal_event(AppEvent::GitStatusRefreshed {
             results: Vec::new(),
             cache_updates: Vec::new(),
+            agent_branches: Vec::new(),
         });
 
         assert!(!app.git_refresh_in_flight);
@@ -1207,6 +1213,7 @@ mod tests {
                 space: None,
             }],
             cache_updates: Vec::new(),
+            agent_branches: Vec::new(),
         });
 
         assert!(app.render_dirty.is_pending());
@@ -1354,6 +1361,7 @@ mod tests {
             .try_send(AppEvent::GitStatusRefreshed {
                 results: Vec::new(),
                 cache_updates: Vec::new(),
+                agent_branches: Vec::new(),
             })
             .unwrap();
 

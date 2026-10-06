@@ -1136,6 +1136,7 @@ fn navigator_searches_ancestor_context_and_keeps_split_agents_individually_actio
         title: Some("implementing navigation".into()),
         terminal_title: None,
         terminal_title_stripped: None,
+        branch: None,
         agent_status: AgentStatus::Working,
         state_change_seq: 1,
         state_labels: Vec::new(),
