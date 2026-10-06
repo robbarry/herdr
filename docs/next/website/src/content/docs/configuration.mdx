@@ -402,6 +402,7 @@ Agent rows accept these built-in tokens:
 - `runtime` — the detected agent kind, such as `claude` or `codex`, ignoring reported display names.
 - `terminal_title` — latest OSC 0/2 terminal title after safety normalization.
 - `terminal_title_stripped` — the terminal title with one recognized leading activity or spinner glyph and its following whitespace removed.
+- `branch` — Git branch checked out in the agent's working directory, read from the agent process and falling back to the pane's shell directory. Omitted outside a Git checkout or on a detached HEAD.
 - `$name` — custom pane metadata named `name`.
 
 Space rows accept these built-in tokens:

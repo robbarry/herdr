@@ -168,6 +168,7 @@ pub(super) fn snapshot_with_completions(
                 title: agent.title,
                 terminal_title: agent.terminal_title,
                 terminal_title_stripped: agent.terminal_title_stripped,
+                branch: agent.branch,
                 agent_status: agent.agent_status,
                 state_change_seq: agent.state_change_seq,
                 state_labels,

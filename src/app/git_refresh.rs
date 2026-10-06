@@ -8,6 +8,7 @@ use tracing::warn;
 
 use super::{App, GIT_REMOTE_STATUS_REFRESH_INTERVAL, GIT_REPO_DISCOVERY_REFRESH_INTERVAL};
 use crate::events::AppEvent;
+use crate::terminal::TerminalId;
 use crate::workspace::{GitStatusCacheEntry, GitStatusRefreshDemand, WorkspaceGitStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,6 +16,14 @@ struct WorkspaceGitRefreshItem {
     workspace_id: String,
     resolved_identity_cwd: PathBuf,
     cache_key_hint: Option<PathBuf>,
+}
+
+/// An agent pane whose branch the Agents sidebar shows, keyed by terminal so
+/// the result survives pane moves between refresh start and completion.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AgentGitRefreshItem {
+    terminal_id: TerminalId,
+    cwd: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,12 +37,14 @@ struct WorkspaceGitRefreshJob {
     cache_key: PathBuf,
     cached: Option<GitStatusCacheEntry>,
     targets: Vec<WorkspaceGitRefreshTarget>,
+    agent_targets: Vec<TerminalId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct WorkspaceGitRefreshOutput {
     results: Vec<WorkspaceGitStatus>,
     cache_updates: Vec<(PathBuf, GitStatusCacheEntry)>,
+    agent_branches: Vec<(TerminalId, Option<String>)>,
 }
 
 impl App {
@@ -119,6 +130,7 @@ impl App {
             || now.saturating_duration_since(self.last_git_repo_discovery_refresh)
                 >= GIT_REPO_DISCOVERY_REFRESH_INTERVAL;
         let workspaces = self.workspace_git_refresh_items(refresh_repo_discovery);
+        let agents = self.agent_git_refresh_items();
 
         if workspaces.is_empty() {
             self.last_git_remote_status_refresh = now;
@@ -134,11 +146,13 @@ impl App {
             demand.branch = true;
         }
         let spawned = crate::thread_spawn::spawn_named("herdr-git-refresh", move || {
-            let output =
-                refresh_workspace_git_statuses_with_cache_and_demand(workspaces, &cache, demand);
+            let output = refresh_workspace_git_statuses_with_cache_and_demand(
+                workspaces, agents, &cache, demand,
+            );
             let _ = event_tx.blocking_send(AppEvent::GitStatusRefreshed {
                 results: output.results,
                 cache_updates: output.cache_updates,
+                agent_branches: output.agent_branches,
             });
         });
         if let Err(err) = spawned {
@@ -190,7 +204,54 @@ impl App {
                 _ => {}
             }
         }
+        if self.agent_branch_demand() {
+            demand.branch = true;
+        }
         demand
+    }
+
+    fn agent_branch_demand(&self) -> bool {
+        let config = &self.state.sidebar_agents;
+        std::iter::once(&config.rows)
+            .chain(config.rows_by_agent.values())
+            .flatten()
+            .flatten()
+            .any(|token| matches!(token.parts().0, crate::config::AgentSidebarToken::Branch))
+    }
+
+    /// Agent panes resolve their branch from the agent process's directory,
+    /// falling back to the shell's, so an agent launched elsewhere reports
+    /// the checkout it actually works in.
+    fn agent_git_refresh_items(&self) -> Vec<AgentGitRefreshItem> {
+        if !self.agent_branch_demand() {
+            return Vec::new();
+        }
+        let mut items = Vec::new();
+        for tab in self.state.workspaces.iter().flat_map(|ws| &ws.tabs) {
+            for (&pane_id, pane) in &tab.panes {
+                let terminal_id = &pane.attached_terminal_id;
+                if !self
+                    .state
+                    .terminals
+                    .get(terminal_id)
+                    .is_some_and(|terminal| terminal.is_agent_terminal())
+                {
+                    continue;
+                }
+                let cwd = tab
+                    .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
+                    .or_else(|| {
+                        tab.cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
+                    });
+                if let Some(cwd) = cwd {
+                    items.push(AgentGitRefreshItem {
+                        terminal_id: terminal_id.clone(),
+                        cwd,
+                    });
+                }
+            }
+        }
+        items
     }
 
     fn workspace_git_refresh_items(
@@ -217,6 +278,7 @@ impl App {
 
 fn deduplicate_git_refresh_items(
     items: Vec<WorkspaceGitRefreshItem>,
+    agents: Vec<AgentGitRefreshItem>,
     cache: &HashMap<PathBuf, GitStatusCacheEntry>,
 ) -> Vec<WorkspaceGitRefreshJob> {
     let mut indexes = HashMap::<PathBuf, usize>::new();
@@ -244,6 +306,25 @@ fn deduplicate_git_refresh_items(
             cache_key,
             cached,
             targets: vec![target],
+            agent_targets: Vec::new(),
+        });
+    }
+
+    for agent in agents {
+        let cache_key =
+            crate::workspace::git_status_cache_key(&agent.cwd).unwrap_or_else(|| agent.cwd.clone());
+        if let Some(&index) = indexes.get(&cache_key) {
+            jobs[index].agent_targets.push(agent.terminal_id);
+            continue;
+        }
+
+        let cached = cache.get(&cache_key).cloned();
+        indexes.insert(cache_key.clone(), jobs.len());
+        jobs.push(WorkspaceGitRefreshJob {
+            cache_key,
+            cached,
+            targets: Vec::new(),
+            agent_targets: vec![agent.terminal_id],
         });
     }
 
@@ -252,13 +333,15 @@ fn deduplicate_git_refresh_items(
 
 fn refresh_workspace_git_statuses_with_cache_and_demand(
     items: Vec<WorkspaceGitRefreshItem>,
+    agents: Vec<AgentGitRefreshItem>,
     cache: &HashMap<PathBuf, GitStatusCacheEntry>,
     demand: GitStatusRefreshDemand,
 ) -> WorkspaceGitRefreshOutput {
     let mut results = Vec::new();
     let mut cache_updates = Vec::new();
+    let mut agent_branches = Vec::new();
 
-    for job in deduplicate_git_refresh_items(items, cache) {
+    for job in deduplicate_git_refresh_items(items, agents, cache) {
         let (snapshot, cache_entry) = crate::workspace::git_status_snapshot_for_cwd_with_demand(
             &job.cache_key,
             job.cached.as_ref(),
@@ -267,6 +350,11 @@ fn refresh_workspace_git_statuses_with_cache_and_demand(
         if let Some(cache_entry) = cache_entry {
             cache_updates.push((job.cache_key.clone(), cache_entry));
         }
+        agent_branches.extend(
+            job.agent_targets
+                .into_iter()
+                .map(|terminal_id| (terminal_id, snapshot.branch.clone())),
+        );
         results.extend(job.targets.into_iter().map(move |target| {
             snapshot.clone().into_workspace_status(
                 target.workspace_id,
@@ -280,6 +368,7 @@ fn refresh_workspace_git_statuses_with_cache_and_demand(
     WorkspaceGitRefreshOutput {
         results,
         cache_updates,
+        agent_branches,
     }
 }
 
@@ -287,6 +376,91 @@ fn refresh_workspace_git_statuses_with_cache_and_demand(
 mod tests {
     use super::*;
     use crate::workspace::Workspace;
+
+    #[test]
+    fn agent_branches_follow_each_agent_checkout_and_share_workspace_jobs() {
+        let root =
+            std::env::temp_dir().join(format!("herdr-agent-branches-{}", std::process::id()));
+        let repo = root.join("repo");
+        let worktree = root.join("feature-worktree");
+        let outside = root.join("plain");
+        std::fs::create_dir_all(repo.join("nested")).expect("create repo dir");
+        std::fs::create_dir_all(&outside).expect("create plain dir");
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args([
+                    "-c",
+                    "user.name=herdr",
+                    "-c",
+                    "user.email=herdr@example.com",
+                ])
+                .args(args)
+                .output()
+                .expect("run git");
+            assert!(output.status.success(), "git {args:?}: {output:?}");
+        };
+        git(&["init", "-b", "main"]);
+        git(&["commit", "--allow-empty", "-m", "init"]);
+        git(&[
+            "worktree",
+            "add",
+            "-b",
+            "feature/sidebar",
+            worktree.to_str().expect("utf-8 path"),
+        ]);
+
+        let (term_repo, term_worktree, term_plain) = (
+            TerminalId::alloc(),
+            TerminalId::alloc(),
+            TerminalId::alloc(),
+        );
+        let output = refresh_workspace_git_statuses_with_cache_and_demand(
+            vec![WorkspaceGitRefreshItem {
+                workspace_id: "workspace".into(),
+                resolved_identity_cwd: repo.clone(),
+                cache_key_hint: None,
+            }],
+            vec![
+                AgentGitRefreshItem {
+                    terminal_id: term_repo.clone(),
+                    cwd: repo.join("nested"),
+                },
+                AgentGitRefreshItem {
+                    terminal_id: term_worktree.clone(),
+                    cwd: worktree.clone(),
+                },
+                AgentGitRefreshItem {
+                    terminal_id: term_plain.clone(),
+                    cwd: outside.clone(),
+                },
+            ],
+            &HashMap::new(),
+            GitStatusRefreshDemand {
+                branch: true,
+                ahead_behind: false,
+            },
+        );
+
+        assert_eq!(
+            output.agent_branches,
+            vec![
+                (term_repo, Some("main".into())),
+                (term_worktree, Some("feature/sidebar".into())),
+                (term_plain, None),
+            ]
+        );
+        assert_eq!(output.results.len(), 1);
+        assert_eq!(output.results[0].branch.as_deref(), Some("main"));
+        assert_eq!(
+            output.cache_updates.len(),
+            3,
+            "the agent sharing the workspace checkout reuses its job"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn git_refresh_deduplicates_workspaces_with_same_cache_key() {
@@ -316,6 +490,7 @@ mod tests {
                     cache_key_hint: None,
                 },
             ],
+            Vec::new(),
             &HashMap::new(),
             GitStatusRefreshDemand::ALL,
         );
@@ -364,6 +539,7 @@ mod tests {
 
         let output = refresh_workspace_git_statuses_with_cache_and_demand(
             items,
+            Vec::new(),
             &HashMap::from([(cache_key, cached)]),
             GitStatusRefreshDemand::ALL,
         );
@@ -436,7 +612,8 @@ mod tests {
                 space: None,
             },
         };
-        let jobs = deduplicate_git_refresh_items(items, &HashMap::from([(cache_key, cached)]));
+        let jobs =
+            deduplicate_git_refresh_items(items, Vec::new(), &HashMap::from([(cache_key, cached)]));
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].cached, None);
     }
@@ -774,6 +951,7 @@ mod tests {
         app.handle_internal_event(AppEvent::GitStatusRefreshed {
             results: Vec::new(),
             cache_updates: Vec::new(),
+            agent_branches: Vec::new(),
         });
 
         assert!(!app.git_refresh_in_flight);
