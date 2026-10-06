@@ -32,7 +32,8 @@ impl App {
             AppEvent::GitStatusRefreshed {
                 results,
                 cache_updates,
-            } => self.handle_git_status_refreshed(results, cache_updates),
+                agent_branches,
+            } => self.handle_git_status_refreshed(results, cache_updates, agent_branches),
             AppEvent::TabBarCommandFinished {
                 generation,
                 segment_index,
@@ -66,6 +67,7 @@ impl App {
         &mut self,
         results: Vec<crate::workspace::WorkspaceGitStatus>,
         cache_updates: Vec<(std::path::PathBuf, crate::workspace::GitStatusCacheEntry)>,
+        agent_branches: Vec<(crate::terminal::TerminalId, Option<String>)>,
     ) -> bool {
         self.git_refresh_in_flight = false;
         for (key, entry) in cache_updates {
@@ -77,9 +79,16 @@ impl App {
         } else {
             self.last_git_remote_status_refresh = Instant::now();
         }
+        let agent_branches = agent_branches
+            .into_iter()
+            .filter_map(|(terminal_id, branch)| Some((terminal_id, branch?)))
+            .collect::<std::collections::HashMap<_, _>>();
+        let agents_changed = agent_branches != self.agent_git_branches;
+        self.agent_git_branches = agent_branches;
         let changed = self
             .state
-            .apply_workspace_git_statuses(&self.terminal_runtimes, results);
+            .apply_workspace_git_statuses(&self.terminal_runtimes, results)
+            || agents_changed;
         if changed {
             self.render_dirty.request_generic();
             self.render_notify.notify_one();
@@ -122,9 +131,10 @@ impl App {
         if let AppEvent::GitStatusRefreshed {
             results,
             cache_updates,
+            agent_branches,
         } = ev
         {
-            self.handle_git_status_refreshed(results, cache_updates);
+            self.handle_git_status_refreshed(results, cache_updates, agent_branches);
             return Vec::new();
         }
 

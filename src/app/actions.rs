@@ -1640,14 +1640,7 @@ impl AppState {
                 }
                 Vec::new()
             }
-            AppEvent::GitStatusRefreshed {
-                results,
-                cache_updates,
-            } => {
-                let _ = results;
-                let _ = cache_updates;
-                Vec::new()
-            }
+            AppEvent::GitStatusRefreshed { .. } => Vec::new(),
             AppEvent::RestoredWorktreeSpaceChecked {
                 workspace_id,
                 expected,

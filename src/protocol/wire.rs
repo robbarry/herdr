@@ -1104,6 +1104,10 @@ pub struct ClientShellAgent {
     pub title: Option<String>,
     pub terminal_title: Option<String>,
     pub terminal_title_stripped: Option<String>,
+    /// Git branch checked out in the agent's working directory; absent on
+    /// older endpoints.
+    #[serde(default)]
+    pub branch: Option<String>,
     #[serde(deserialize_with = "deserialize_client_shell_agent_status")]
     pub agent_status: crate::api::schema::AgentStatus,
     pub state_change_seq: u64,

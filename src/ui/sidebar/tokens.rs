@@ -64,6 +64,7 @@ pub(crate) struct AgentTokenContext<'a> {
     pub(crate) runtime: Option<&'a str>,
     pub(crate) terminal_title: Option<&'a str>,
     pub(crate) terminal_title_stripped: Option<&'a str>,
+    pub(crate) branch: Option<&'a str>,
     pub(crate) canonical_agent: Option<crate::detect::Agent>,
     pub(crate) tokens: &'a std::collections::HashMap<String, String>,
 }
@@ -117,6 +118,9 @@ pub(crate) fn agent_rows(
                         AgentSidebarToken::TerminalTitleStripped => context
                             .terminal_title_stripped
                             .map(|value| ResolvedTokenKind::TerminalTitle(value.to_string())),
+                        AgentSidebarToken::Branch => context
+                            .branch
+                            .map(|value| ResolvedTokenKind::Branch(value.to_string())),
                         AgentSidebarToken::Custom(name) => context
                             .tokens
                             .get(name)
@@ -213,6 +217,7 @@ mod tests {
         agent_label: Option<String>,
         terminal_title: Option<String>,
         terminal_title_stripped: Option<String>,
+        branch: Option<String>,
         canonical_agent: Option<crate::detect::Agent>,
         tokens: std::collections::HashMap<String, String>,
     }
@@ -225,6 +230,7 @@ mod tests {
             agent_label: Some("pi".into()),
             terminal_title: None,
             terminal_title_stripped: None,
+            branch: None,
             canonical_agent: Some(crate::detect::Agent::Pi),
             tokens: std::collections::HashMap::new(),
         }
@@ -240,6 +246,7 @@ mod tests {
             runtime: entry.canonical_agent.map(crate::detect::agent_label),
             terminal_title: entry.terminal_title.as_deref(),
             terminal_title_stripped: entry.terminal_title_stripped.as_deref(),
+            branch: entry.branch.as_deref(),
             canonical_agent: entry.canonical_agent,
             tokens: &entry.tokens,
         }
@@ -272,6 +279,26 @@ mod tests {
         let rows = agent_rows(&config, context(&numbered), "idle");
         assert_eq!(rows[0].len(), 2);
         assert!(matches!(&rows[0][1].kind, ResolvedTokenKind::Tab(label) if label == "3"));
+    }
+
+    #[test]
+    fn branch_token_shows_the_agent_checkout_and_disappears_without_one() {
+        let config: AgentsSidebarConfig =
+            toml::from_str(r#"rows = [["agent", "branch"]]"#).unwrap();
+        let mut entry = entry();
+        assert_eq!(
+            agent_rows(&config, context(&entry), "idle")[0],
+            vec![ResolvedToken::unstyled(ResolvedTokenKind::Agent(
+                "pi".into()
+            ))]
+        );
+
+        entry.branch = Some("feature/sidebar".into());
+        let rows = agent_rows(&config, context(&entry), "idle");
+        assert_eq!(
+            rows[0][1],
+            ResolvedToken::unstyled(ResolvedTokenKind::Branch("feature/sidebar".into()))
+        );
     }
 
     #[test]
