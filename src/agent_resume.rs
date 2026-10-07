@@ -33,6 +33,10 @@ pub struct ReportedAgentResume {
     pub source: String,
     pub agent: String,
     pub argv: Vec<String>,
+    /// Native session a launcher wrapper (for example tank2) attached this
+    /// command to while another source holds the pane. The command lives
+    /// exactly as long as that session stays current.
+    pub session: Option<String>,
 }
 
 impl ReportedAgentResume {

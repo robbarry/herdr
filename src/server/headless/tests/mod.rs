@@ -7756,6 +7756,105 @@ fn api_resume_argv_is_ignored_when_its_session_report_is_refused() {
     );
 }
 
+#[test]
+fn api_wrapper_resume_attaches_to_the_current_session_held_by_another_source() {
+    let (writer, _control_rx, _render_rx) = test_client_writer();
+    let (mut server, pane_id) = completion_guard_server(writer);
+    let public_pane_id = server.app.public_pane_id(0, pane_id).unwrap();
+    let terminal_id = server.app.state.workspaces[0].tabs[0].panes[&pane_id]
+        .attached_terminal_id
+        .clone();
+    server.handle_internal_event_with_forwarding(AppEvent::AgentProcessDetected {
+        pane_id,
+        agent: crate::detect::Agent::Claude,
+        observed_at: Instant::now(),
+    });
+    let native_session = |session: &str, start: &str| {
+        api::schema::Method::PaneReportAgentSession(api::schema::PaneReportAgentSessionParams {
+            pane_id: public_pane_id.clone(),
+            source: "herdr:claude".into(),
+            agent: "claude".into(),
+            seq: None,
+            agent_session_id: Some(session.into()),
+            agent_session_path: None,
+            session_start_source: Some(start.into()),
+            resume_argv: None,
+        })
+    };
+    let wrapper_request = |session: &str| api::schema::Request {
+        id: format!("wrapper-{session}"),
+        method: api::schema::Method::PaneReportAgentSession(
+            api::schema::PaneReportAgentSessionParams {
+                pane_id: public_pane_id.clone(),
+                source: "custom:tank2".into(),
+                agent: "boleyn".into(),
+                seq: None,
+                agent_session_id: Some(session.into()),
+                agent_session_path: None,
+                session_start_source: None,
+                resume_argv: Some(vec![
+                    "tank2".into(),
+                    "claude".into(),
+                    "--name".into(),
+                    "boleyn".into(),
+                    "--".into(),
+                    "--resume".into(),
+                    session.into(),
+                ]),
+            },
+        ),
+    };
+    let send = |server: &mut HeadlessServer, request: api::schema::Request| {
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+            request,
+            respond_to,
+            response_write_complete: None,
+        });
+        response_rx
+            .recv_timeout(Duration::from_millis(100))
+            .unwrap()
+    };
+
+    completion_guard_api_report(&mut server, native_session("session-a", "startup"));
+
+    let response = send(&mut server, wrapper_request("session-z"));
+    assert!(response.contains("resume_not_accepted"), "{response}");
+    assert!(server.app.state.terminals[&terminal_id]
+        .reported_resume()
+        .is_none());
+
+    let response = send(&mut server, wrapper_request("session-a"));
+    assert!(!response.contains("error"), "{response}");
+    let resume = server.app.state.terminals[&terminal_id]
+        .reported_resume()
+        .cloned()
+        .expect("wrapper resume attached to the native session");
+    assert_eq!(resume.source, "custom:tank2");
+    assert_eq!(resume.session.as_deref(), Some("session-a"));
+    assert_eq!(resume.argv[0], "tank2");
+    assert!(
+        server.app.state.terminals[&terminal_id].session_ref_is_current(
+            &crate::agent_resume::AgentSessionRef::id("session-a").unwrap()
+        ),
+        "the native integration keeps owning the session"
+    );
+
+    completion_guard_api_report(&mut server, native_session("session-b", "clear"));
+    assert!(
+        server.app.state.terminals[&terminal_id].session_ref_is_current(
+            &crate::agent_resume::AgentSessionRef::id("session-b").unwrap()
+        ),
+        "the native integration moved to its new session"
+    );
+    assert!(
+        server.app.state.terminals[&terminal_id]
+            .reported_resume()
+            .is_none(),
+        "a new native session drops the wrapper command bound to the old one"
+    );
+}
+
 fn completion_guard_notifications(
     server: &mut HeadlessServer,
     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,

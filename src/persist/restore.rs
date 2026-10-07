@@ -880,6 +880,7 @@ fn reported_resume_from_snapshot(
         source: resume.source.clone(),
         agent: resume.agent.clone(),
         argv: resume.argv.clone(),
+        session: resume.session.clone(),
     }
 }
 
@@ -1309,6 +1310,7 @@ mod tests {
                 "--model".into(),
                 "m".into(),
             ],
+            session: None,
         };
         let history = super::super::snapshot::PaneHistorySnapshot {
             ansi: "RESTORED_HISTORY\r\n".into(),
@@ -1338,6 +1340,7 @@ mod tests {
             source: "prime-agent".into(),
             agent: "prime-agent".into(),
             argv: vec!["prime-agent".into(), "--continue".into()],
+            session: None,
         };
         let first = pane_restore_startup(None, Some(&custom), project_a, None, &mut agent_restore);
         assert_eq!(first.restore_plan.unwrap().argv, custom.argv);
