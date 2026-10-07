@@ -1982,6 +1982,53 @@ impl TerminalState {
         if !self.can_record_reported_resume(source, agent_label) {
             return false;
         }
+        self.store_reported_resume(source, agent_label, seq, argv, None)
+    }
+
+    /// A launcher wrapper such as tank2 knows how to relaunch the session it
+    /// started, but the agent's own integration holds the pane. It may attach
+    /// a command only to the session that is current right now.
+    pub fn can_record_session_bound_resume(&self, session: &str) -> bool {
+        self.recent_agent_process_exit.is_none() && self.current_session_value() == Some(session)
+    }
+
+    /// Callers must first check `hook_report_is_newer` against the state
+    /// before the carrying report was applied.
+    pub fn record_session_bound_resume(
+        &mut self,
+        source: &str,
+        agent_label: &str,
+        seq: Option<u64>,
+        argv: Vec<String>,
+        session: String,
+    ) -> bool {
+        if !self.can_record_session_bound_resume(&session) {
+            return false;
+        }
+        self.store_reported_resume(source, agent_label, seq, argv, Some(session))
+    }
+
+    fn current_session_value(&self) -> Option<&str> {
+        if let Some(session_ref) = self
+            .hook_authority
+            .as_ref()
+            .and_then(|authority| authority.session_ref.as_ref())
+        {
+            return Some(session_ref.value.as_str());
+        }
+        self.persisted_agent_session
+            .as_ref()
+            .map(|session| session.session_ref.value.as_str())
+    }
+
+    fn store_reported_resume(
+        &mut self,
+        source: &str,
+        agent_label: &str,
+        seq: Option<u64>,
+        argv: Vec<String>,
+        session: Option<String>,
+    ) -> bool {
         if let Some(seq) = seq {
             let last = self
                 .hook_report_sequences
@@ -1993,6 +2040,7 @@ impl TerminalState {
             source: source.to_string(),
             agent: agent_label.to_string(),
             argv,
+            session,
         };
         if self.reported_resume.as_ref() == Some(&resume) {
             return false;
@@ -2011,11 +2059,18 @@ impl TerminalState {
         self.reported_resume_revision
     }
 
-    /// Drops the command once a different agent holds the pane.
+    /// Drops the command once a different agent holds the pane, or once the
+    /// session a wrapper attached it to is no longer current.
     pub fn reconcile_reported_resume(&mut self) {
         let Some(resume) = self.reported_resume.as_ref() else {
             return;
         };
+        if let Some(session) = resume.session.as_deref() {
+            if self.current_session_value() != Some(session) {
+                self.set_reported_resume(None);
+            }
+            return;
+        }
         let other_authority = self.hook_authority.as_ref().is_some_and(|authority| {
             authority.source != resume.source || authority.agent_label != resume.agent
         });
