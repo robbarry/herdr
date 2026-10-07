@@ -1568,6 +1568,7 @@ impl App {
         let report_is_newer = self
             .pane_terminal(ws_idx, pane_id)
             .is_some_and(|terminal| terminal.hook_report_is_newer(&params.source, params.seq));
+        let reported_session = params.agent_session_id.clone();
         let session_ref = crate::agent_resume::session_ref_from_report(
             &params.source,
             &agent_label,
@@ -1593,6 +1594,7 @@ impl App {
             agent_label,
             params.seq.filter(|_| applied),
             applied.then_some(params.resume_argv).flatten(),
+            reported_session,
         )
     }
 
@@ -1613,6 +1615,7 @@ impl App {
         let report_is_newer = self
             .pane_terminal(ws_idx, pane_id)
             .is_some_and(|terminal| terminal.hook_report_is_newer(&params.source, params.seq));
+        let reported_session = params.agent_session_id.clone();
         let session_ref = crate::agent_resume::session_ref_from_report(
             &params.source,
             &agent_label,
@@ -1639,6 +1642,7 @@ impl App {
             agent_label,
             params.seq.filter(|_| applied),
             applied.then_some(params.resume_argv).flatten(),
+            reported_session,
         )
     }
 
@@ -1674,26 +1678,34 @@ impl App {
         agent_label: String,
         seq: Option<u64>,
         resume_argv: Option<Vec<String>>,
+        reported_session: Option<String>,
     ) -> String {
         let Some(argv) = resume_argv else {
             return encode_success(id, ResponseResult::Ok {});
         };
-        let can_record = self
-            .pane_terminal(ws_idx, pane_id)
-            .is_some_and(|terminal| terminal.can_record_reported_resume(&source, &agent_label));
-        if !can_record {
+        let terminal = self.pane_terminal(ws_idx, pane_id);
+        let session = if terminal
+            .is_some_and(|terminal| terminal.can_record_reported_resume(&source, &agent_label))
+        {
+            None
+        } else if let Some(session) = reported_session.filter(|session| {
+            terminal.is_some_and(|terminal| terminal.can_record_session_bound_resume(session))
+        }) {
+            Some(session)
+        } else {
             return encode_error(
                 id,
                 "resume_not_accepted",
-                "resume_argv requires the reporter to hold the pane; report its state with pane.report_agent first",
+                "resume_argv requires the reporter to hold the pane, or an agent_session_id matching the pane's current session; report its state with pane.report_agent first",
             );
-        }
+        };
         self.handle_internal_event(crate::events::AppEvent::AgentResumeReported {
             pane_id,
             source,
             agent_label,
             seq,
             argv,
+            session,
         });
         encode_success(id, ResponseResult::Ok {})
     }
