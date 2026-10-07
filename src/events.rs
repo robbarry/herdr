@@ -127,6 +127,9 @@ pub enum AppEvent {
         agent_label: String,
         seq: Option<u64>,
         argv: Vec<String>,
+        /// Set when a wrapper attaches the command to the current session
+        /// instead of holding the pane.
+        session: Option<String>,
     },
     /// A pane held by a self-reported agent is back at its idle shell.
     ReportedAgentShellReturned {

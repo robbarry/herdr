@@ -122,6 +122,8 @@ pub struct PaneAgentResumeSnapshot {
     pub source: String,
     pub agent: String,
     pub argv: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -382,6 +384,7 @@ fn capture_tab(
                 source: resume.source.clone(),
                 agent: resume.agent.clone(),
                 argv: resume.argv.clone(),
+                session: resume.session.clone(),
             });
         panes.insert(
             id.raw(),

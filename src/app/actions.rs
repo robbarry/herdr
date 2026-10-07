@@ -1524,9 +1524,19 @@ impl AppState {
                 agent_label,
                 seq,
                 argv,
+                session,
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.record_reported_resume(&source, &agent_label, seq, argv);
+                    match session {
+                        Some(session) => terminal.record_session_bound_resume(
+                            &source,
+                            &agent_label,
+                            seq,
+                            argv,
+                            session,
+                        ),
+                        None => terminal.record_reported_resume(&source, &agent_label, seq, argv),
+                    };
                     None
                 })
                 .into_iter()
@@ -3654,6 +3664,7 @@ mod tests {
             agent_label: "prime-agent".into(),
             seq: Some(1),
             argv: argv.iter().map(|part| part.to_string()).collect(),
+            session: None,
         });
     }
 
@@ -3681,6 +3692,7 @@ mod tests {
             agent_label: "other".into(),
             seq: None,
             argv: vec!["other".into()],
+            session: None,
         });
         assert_eq!(
             state.terminals[&terminal_id]
@@ -3736,6 +3748,7 @@ mod tests {
             agent_label: "pi".into(),
             seq: None,
             argv: vec!["pi".into(), "--continue".into()],
+            session: None,
         });
         assert!(state.terminals[&terminal_id].reported_resume().is_some());
         state.session_dirty = false;
@@ -3759,6 +3772,7 @@ mod tests {
             agent_label: "pi".into(),
             seq: None,
             argv: vec!["pi".into(), "--continue".into()],
+            session: None,
         });
         assert!(
             state.terminals[&terminal_id].reported_resume().is_none(),
