@@ -288,6 +288,7 @@ fn account_usage_get_request_and_response_round_trip() {
         result: ResponseResult::AccountUsage {
             enabled: true,
             meters: vec![AccountUsageInfo {
+                budget: None,
                 provider: AccountUsageProvider::Claude,
                 plan_type: None,
                 windows: vec![AccountUsageWindowInfo {

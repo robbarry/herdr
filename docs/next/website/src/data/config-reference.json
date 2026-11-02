@@ -486,6 +486,12 @@
           "type": "boolean",
           "default": "true",
           "description": "Poll your own Claude and Codex subscription usage on the server in the background and show each rate-limit window in the sidebar usage footer as a bar of the share used with a tick for how far into the window you are, colored by whether usage is behind, at, or ahead of that pace, with the time until reset. Claude is read through the Claude Code login on the server machine; Codex through codex app-server. No model calls are made and no tokens are logged or stored."
+        },
+        {
+          "key": "account_usage.bedrock_command",
+          "type": "array",
+          "default": "[\"bedrock-usage\"]",
+          "description": "Program and optional arguments for Bedrock spending reads; Herdr appends --json without shell evaluation. Polled every five minutes. Use absolute executable/interpreter paths if the server lacks the interactive shell PATH. Never include credentials."
         }
       ]
     },

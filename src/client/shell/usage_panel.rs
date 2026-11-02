@@ -19,7 +19,7 @@ use crate::app::state::Palette;
 /// Rows the sections above must keep before the panel takes space.
 const MIN_SECTIONS_HEIGHT: u16 = 12;
 const MAX_WINDOWS_PER_PROVIDER: usize = 4;
-const MAX_ROWS: usize = 10;
+const MAX_ROWS: usize = 20;
 const HEADER_ROWS: u16 = 2;
 const TOGGLE_ROWS: u16 = 1;
 const MIN_BAR_WIDTH: u16 = 4;
@@ -32,6 +32,7 @@ enum UsageRow<'a> {
         name: &'a str,
         plan_type: Option<&'a str>,
         stale: bool,
+        suspended: bool,
     },
     Window {
         label: &'a str,
@@ -41,29 +42,73 @@ enum UsageRow<'a> {
         severity: Option<&'a str>,
         stale: bool,
     },
+    BudgetBar {
+        label: &'static str,
+        window: &'a crate::protocol::ClientShellSpendingWindow,
+        stale: bool,
+    },
+    BudgetAmounts {
+        label: &'static str,
+        compact: bool,
+        window: &'a crate::protocol::ClientShellSpendingWindow,
+        remaining: bool,
+        stale: bool,
+    },
 }
 
 fn rows(snapshot: &ClientShellSnapshot) -> Vec<UsageRow<'_>> {
     snapshot
         .account_usage
         .iter()
-        .filter(|meter| !meter.windows.is_empty())
+        .filter(|meter| !meter.windows.is_empty() || meter.budget.is_some())
         .flat_map(|meter| {
             std::iter::once(UsageRow::Provider {
                 name: &meter.provider,
                 plan_type: meter.plan_type.as_deref(),
                 stale: meter.stale,
+                suspended: meter.budget.as_ref().is_some_and(|b| b.suspended),
             })
-            .chain(meter.windows.iter().take(MAX_WINDOWS_PER_PROVIDER).map(
-                move |window| UsageRow::Window {
-                    label: &window.label,
-                    remaining_percent: window.remaining_percent.min(100),
-                    resets_in_seconds: window.resets_in_seconds,
-                    window_minutes: window.window_minutes,
-                    severity: window.severity.as_deref(),
-                    stale: meter.stale,
-                },
-            ))
+            .chain(
+                meter
+                    .windows
+                    .iter()
+                    .take(MAX_WINDOWS_PER_PROVIDER)
+                    .map(move |window| UsageRow::Window {
+                        label: &window.label,
+                        remaining_percent: window.remaining_percent.min(100),
+                        resets_in_seconds: window.resets_in_seconds,
+                        window_minutes: window.window_minutes,
+                        severity: window.severity.as_deref(),
+                        stale: meter.stale,
+                    }),
+            )
+            .chain(meter.budget.iter().flat_map(move |budget| {
+                [("day UTC", &budget.daily), ("7d roll", &budget.rolling_7d)]
+                    .into_iter()
+                    .flat_map(move |(label, window)| {
+                        [
+                            UsageRow::BudgetBar {
+                                label,
+                                window,
+                                stale: meter.stale,
+                            },
+                            UsageRow::BudgetAmounts {
+                                label,
+                                compact: false,
+                                window,
+                                remaining: false,
+                                stale: meter.stale,
+                            },
+                            UsageRow::BudgetAmounts {
+                                label,
+                                compact: false,
+                                window,
+                                remaining: true,
+                                stale: meter.stale,
+                            },
+                        ]
+                    })
+            }))
         })
         .take(MAX_ROWS)
         .collect()
@@ -78,10 +123,60 @@ pub(super) fn panel_height(snapshot: &ClientShellSnapshot) -> u16 {
     }
 }
 
+/// Compact only the added spending details when height is constrained. Never
+/// make existing subscription meters vanish just because Bedrock is available.
+fn fitting_rows(snapshot: &ClientShellSnapshot, available: u16) -> Vec<UsageRow<'_>> {
+    let mut result = rows(snapshot);
+    let capacity = usize::from(available.saturating_sub(HEADER_ROWS + TOGGLE_ROWS));
+    if result.len() > capacity {
+        result.retain(|r| {
+            !matches!(
+                r,
+                UsageRow::BudgetAmounts {
+                    remaining: true,
+                    ..
+                }
+            )
+        });
+    }
+    if result.len() > capacity {
+        result.retain(|r| !matches!(r, UsageRow::BudgetBar { .. }));
+        for row in &mut result {
+            if let UsageRow::BudgetAmounts { compact, .. } = row {
+                *compact = true;
+            }
+        }
+    }
+    if result.len() > capacity {
+        result.retain(|r| {
+            !matches!(
+                r,
+                UsageRow::BudgetAmounts { .. }
+                    | UsageRow::Provider {
+                        name: "bedrock",
+                        ..
+                    }
+            )
+        });
+    }
+    result
+}
+
 /// Splits the sidebar into the area the sections keep and the panel footer.
 /// The footer is empty when there is nothing to show or too little height.
 pub(super) fn reserve(area: Rect, snapshot: &ClientShellSnapshot) -> (Rect, Rect) {
-    let height = panel_height(snapshot);
+    let available = area.height.saturating_sub(MIN_SECTIONS_HEIGHT);
+    let desired = panel_height(snapshot);
+    let height = if desired <= available {
+        desired
+    } else {
+        let rows = fitting_rows(snapshot, available);
+        if rows.is_empty() {
+            0
+        } else {
+            HEADER_ROWS + rows.len() as u16 + TOGGLE_ROWS
+        }
+    };
     if height == 0 || area.height < height + MIN_SECTIONS_HEIGHT {
         return (area, Rect::default());
     }
@@ -172,7 +267,7 @@ pub(super) fn render(
         return;
     }
     let palette = &config.palette;
-    let rows = rows(snapshot);
+    let rows = fitting_rows(snapshot, area.height);
     put_text(
         buffer,
         content.x,
@@ -199,7 +294,7 @@ pub(super) fn render(
         .iter()
         .filter_map(|row| match row {
             UsageRow::Window { label, .. } => Some(display_width(label)),
-            UsageRow::Provider { .. } => None,
+            _ => None,
         })
         .max()
         .unwrap_or(0)
@@ -215,6 +310,7 @@ pub(super) fn render(
                 name,
                 plan_type,
                 stale,
+                suspended,
             } => {
                 put_text(
                     buffer,
@@ -233,8 +329,20 @@ pub(super) fn render(
                         buffer,
                         row_rect,
                         y,
-                        "stale",
+                        if *suspended {
+                            "suspended stale"
+                        } else {
+                            "stale"
+                        },
                         Style::default().fg(palette.yellow),
+                    );
+                } else if *suspended {
+                    put_right_text(
+                        buffer,
+                        row_rect,
+                        y,
+                        "suspended",
+                        Style::default().fg(palette.red),
                     );
                 } else if let Some(plan) = plan_type {
                     put_right_text(
@@ -245,6 +353,70 @@ pub(super) fn render(
                         Style::default().fg(palette.overlay0),
                     );
                 }
+            }
+            UsageRow::BudgetBar {
+                label,
+                window,
+                stale,
+            } => {
+                let style = Style::default().fg(if *stale {
+                    palette.overlay0
+                } else if window.used_percent.is_some_and(|n| n >= 90) {
+                    palette.red
+                } else if window.used_percent.is_some_and(|n| n >= 75) {
+                    palette.yellow
+                } else {
+                    palette.green
+                });
+                let x = row_rect.x + 2;
+                put_text(buffer, x, y, 7, label, style);
+                let bar_x = x + 8;
+                let width = row_rect.right().saturating_sub(bar_x) as usize;
+                if let Some(used) = window.used_percent {
+                    let filled = width * usize::from(used.min(100)) / 100;
+                    let bar = format!("{}{}", FILLED.repeat(filled), EMPTY.repeat(width - filled));
+                    put_text(buffer, bar_x, y, width as u16, &bar, style);
+                } else {
+                    put_text(buffer, bar_x, y, width as u16, "n/a", style);
+                }
+            }
+            UsageRow::BudgetAmounts {
+                label,
+                compact,
+                window,
+                remaining,
+                stale,
+            } => {
+                let mut text = if *remaining {
+                    window
+                        .remaining_cents
+                        .map(|n| format!("{} left", dollars(n)))
+                        .unwrap_or_else(|| "remaining n/a".into())
+                } else {
+                    format!(
+                        "{}/{}",
+                        dollars(window.spent_cents),
+                        window
+                            .cap_cents
+                            .map(dollars)
+                            .unwrap_or_else(|| "cap n/a".into())
+                    )
+                };
+                if *compact {
+                    text = format!("{} {text}", if *label == "day UTC" { "day" } else { "7d" });
+                }
+                put_text(
+                    buffer,
+                    row_rect.x + 2,
+                    y,
+                    row_rect.width.saturating_sub(2),
+                    &text,
+                    Style::default().fg(if *stale {
+                        palette.overlay0
+                    } else {
+                        palette.subtext0
+                    }),
+                );
             }
             UsageRow::Window {
                 label,
@@ -338,6 +510,10 @@ pub(super) fn render(
     }
 }
 
+fn dollars(cents: u64) -> String {
+    format!("${}.{:02}", cents / 100, cents % 100)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,6 +572,7 @@ mod tests {
         vec![
             ClientShellAccountUsage {
                 provider: "claude".into(),
+                budget: None,
                 plan_type: None,
                 stale: false,
                 windows: vec![
@@ -405,6 +582,7 @@ mod tests {
             },
             ClientShellAccountUsage {
                 provider: "codex".into(),
+                budget: None,
                 plan_type: Some("pro".into()),
                 stale: true,
                 windows: vec![window("week", 82, None, Some(10_080))],
@@ -420,6 +598,84 @@ mod tests {
         (0..width)
             .map(|x| buffer[(x, y)].symbol().to_string())
             .collect::<String>()
+    }
+
+    #[test]
+    fn budget_rows_follow_codex_and_keep_dollar_amounts_and_rolling_label() {
+        let mut meters = meters();
+        meters.push(ClientShellAccountUsage {
+            provider: "bedrock".into(),
+            plan_type: None,
+            stale: false,
+            windows: vec![],
+            budget: Some(crate::protocol::ClientShellSpendingBudget {
+                suspended: true,
+                daily: crate::protocol::ClientShellSpendingWindow {
+                    spent_cents: 30021,
+                    cap_cents: Some(30000),
+                    remaining_cents: Some(0),
+                    used_percent: Some(100),
+                },
+                rolling_7d: crate::protocol::ClientShellSpendingWindow {
+                    spent_cents: 96073,
+                    cap_cents: Some(105000),
+                    remaining_cents: Some(8927),
+                    used_percent: Some(91),
+                },
+            }),
+        });
+        let snapshot = snapshot(meters);
+        let rows = rows(&snapshot);
+        let providers: Vec<_> = rows
+            .iter()
+            .filter_map(|r| match r {
+                UsageRow::Provider { name, .. } => Some(*name),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(providers, ["claude", "codex", "bedrock"]);
+        assert_eq!(dollars(30021), "$300.21");
+        assert_eq!(dollars(8927), "$89.27");
+        assert_eq!(
+            rows.iter()
+                .filter(|r| matches!(r, UsageRow::BudgetBar { .. }))
+                .count(),
+            2
+        );
+        assert!(rows.iter().any(|r| matches!(
+            r,
+            UsageRow::BudgetBar {
+                label: "7d roll",
+                ..
+            }
+        )));
+        let area = Rect::new(0, 0, 26, panel_height(&snapshot));
+        let mut buffer = Buffer::empty(area);
+        render(&mut buffer, area, &snapshot, &config());
+        let text = (0..area.height)
+            .map(|y| row_text(&buffer, y, area.width))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("suspended"), "{text}");
+        assert!(text.contains("$300.21/$300.00"), "{text}");
+        assert!(text.contains("$89.27 left"), "{text}");
+        let (_, compact) = reserve(Rect::new(0, 0, 26, 24), &snapshot);
+        assert!(!compact.is_empty());
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 26, 24));
+        render(&mut buffer, compact, &snapshot, &config());
+        let text = (0..24)
+            .map(|y| row_text(&buffer, y, 26))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in [
+            "claude",
+            "codex",
+            "bedrock",
+            "day $300.21/$300.00",
+            "7d $960.73/$1050.00",
+        ] {
+            assert!(text.contains(label), "missing {label}: {text}");
+        }
     }
 
     #[test]

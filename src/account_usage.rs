@@ -38,15 +38,24 @@ const RETRY_AFTER_MAX: Duration = Duration::from_secs(24 * 60 * 60);
 pub enum AccountUsageProvider {
     Claude,
     Codex,
+    Bedrock,
 }
 
 impl AccountUsageProvider {
-    pub const ALL: [Self; 2] = [Self::Claude, Self::Codex];
+    pub const ALL: [Self; 3] = [Self::Claude, Self::Codex, Self::Bedrock];
+
+    pub fn poll_interval(self) -> Duration {
+        match self {
+            Self::Bedrock => crate::bedrock_usage::POLL_INTERVAL,
+            _ => POLL_INTERVAL,
+        }
+    }
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Bedrock => "bedrock",
         }
     }
 }
@@ -72,6 +81,7 @@ pub struct AccountUsageMeter {
     pub provider: AccountUsageProvider,
     pub plan_type: Option<String>,
     pub windows: Vec<AccountUsageWindow>,
+    pub budget: Option<crate::bedrock_usage::SpendingBudget>,
     pub fetched_at_unix: u64,
     pub source: &'static str,
 }
@@ -81,6 +91,11 @@ impl AccountUsageMeter {
         // A future fetched_at is clock skew; it must read stale, not fresh.
         self.fetched_at_unix > now_unix + 60
             || now_unix.saturating_sub(self.fetched_at_unix) > STALE_AFTER.as_secs()
+            || self.budget.as_ref().is_some_and(|b| {
+                b.data_updated_at_unix > now_unix + 60
+                    || now_unix.saturating_sub(b.data_updated_at_unix) > STALE_AFTER.as_secs()
+                    || b.data_updated_at_unix / 86_400 != now_unix / 86_400
+            })
     }
 }
 
@@ -175,10 +190,14 @@ pub fn remaining_percent(used_percent: f64) -> u8 {
 pub async fn fetch(
     provider: AccountUsageProvider,
     now_unix: u64,
+    bedrock_command: &[String],
 ) -> Result<AccountUsageMeter, FetchError> {
     match provider {
         AccountUsageProvider::Claude => fetch_claude(now_unix).await,
         AccountUsageProvider::Codex => fetch_codex(now_unix).await,
+        AccountUsageProvider::Bedrock => {
+            crate::bedrock_usage::fetch(bedrock_command, now_unix).await
+        }
     }
 }
 
@@ -283,6 +302,7 @@ pub fn parse_claude_usage(body: &[u8], now_unix: u64) -> Result<AccountUsageMete
     }
     Ok(AccountUsageMeter {
         provider: AccountUsageProvider::Claude,
+        budget: None,
         plan_type: None,
         windows,
         fetched_at_unix: now_unix,
@@ -549,6 +569,7 @@ pub fn parse_codex_rate_limits(
     }
     Ok(AccountUsageMeter {
         provider: AccountUsageProvider::Codex,
+        budget: None,
         plan_type: limits
             .plan_type
             .map(|plan| plan.trim().to_owned())
@@ -835,6 +856,7 @@ mod tests {
     #[test]
     fn staleness_uses_the_fetch_age_and_rejects_future_readings() {
         let meter = AccountUsageMeter {
+            budget: None,
             provider: AccountUsageProvider::Codex,
             plan_type: None,
             windows: Vec::new(),
