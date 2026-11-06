@@ -568,7 +568,7 @@ pub(super) fn render_expanded(
         hits,
     );
     if let Some(snapshot) = active_snapshot {
-        super::usage_panel::render(buffer, usage_area, snapshot, config);
+        super::usage_panel::render(buffer, usage_area, snapshot, config, state.now_unix);
     }
     let area = full_area;
     hits.sidebar_toggle = Rect::new(
