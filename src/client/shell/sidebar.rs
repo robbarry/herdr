@@ -440,7 +440,7 @@ pub(crate) fn render_sidebar(
         state.agent_scroll,
         hits,
     );
-    super::usage_panel::render(buffer, usage_area, snapshot, config);
+    super::usage_panel::render(buffer, usage_area, snapshot, config, state.now_unix);
 
     let area = full_area;
     hits.sidebar_toggle = Rect::new(

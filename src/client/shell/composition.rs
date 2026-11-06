@@ -55,6 +55,7 @@ impl ClientShellState {
                     == Some(ClientEndpointStatus::Online)
         });
         let mut render_state = render::ShellRenderState {
+            now_unix: crate::account_usage::unix_now(),
             machine_diagnostics: &self.machine_diagnostics,
             endpoints: &self.endpoints,
             active_endpoint_id: &self.active_endpoint_id,
@@ -211,6 +212,7 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
+                now_unix: crate::account_usage::unix_now(),
                 machine_diagnostics: &self.machine_diagnostics,
                 endpoints: &self.endpoints,
                 active_endpoint_id: &self.active_endpoint_id,

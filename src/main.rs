@@ -16,6 +16,7 @@ mod agent_resume;
 mod agent_view_eval;
 mod api;
 mod app;
+mod bedrock_usage;
 mod build_info;
 mod checksum;
 mod cli;

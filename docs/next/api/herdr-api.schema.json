@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 23,
+  "protocol": 24,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -6602,6 +6602,16 @@
         "AccountUsageInfo": {
           "description": "One provider account's latest usage reading.",
           "properties": {
+            "budget": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/SpendingBudget"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "fetched_at_unix": {
               "format": "uint64",
               "minimum": 0,
@@ -6642,7 +6652,8 @@
         "AccountUsageProvider": {
           "enum": [
             "claude",
-            "codex"
+            "codex",
+            "bedrock"
           ],
           "type": "string"
         },
@@ -10763,6 +10774,64 @@
             "panes",
             "layouts",
             "agents"
+          ],
+          "type": "object"
+        },
+        "SpendingBudget": {
+          "properties": {
+            "daily": {
+              "$ref": "#/schemas/success_response/$defs/SpendingWindow"
+            },
+            "data_updated_at_unix": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rolling_7d": {
+              "$ref": "#/schemas/success_response/$defs/SpendingWindow"
+            },
+            "suspended": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "daily",
+            "rolling_7d",
+            "suspended",
+            "data_updated_at_unix"
+          ],
+          "type": "object"
+        },
+        "SpendingWindow": {
+          "properties": {
+            "cap_usd": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "remaining_usd": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "spent_usd": {
+              "format": "double",
+              "type": "number"
+            },
+            "used_percent": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "spent_usd"
           ],
           "type": "object"
         },
