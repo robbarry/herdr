@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 24;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -962,6 +962,23 @@ pub struct ClientShellAccountUsage {
     /// The reading is older than the endpoint's freshness window.
     pub stale: bool,
     pub windows: Vec<ClientShellAccountUsageWindow>,
+    #[serde(default)]
+    pub budget: Option<ClientShellSpendingBudget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellSpendingBudget {
+    pub suspended: bool,
+    pub daily: ClientShellSpendingWindow,
+    pub rolling_7d: ClientShellSpendingWindow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellSpendingWindow {
+    pub spent_cents: u64,
+    pub cap_cents: Option<u64>,
+    pub remaining_cents: Option<u64>,
+    pub used_percent: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2891,6 +2908,7 @@ mod tests {
                 description: Some("deploy".into()),
             }],
             account_usage: vec![ClientShellAccountUsage {
+                budget: None,
                 provider: "claude".into(),
                 plan_type: None,
                 stale: false,

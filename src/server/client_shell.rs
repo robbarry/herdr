@@ -276,6 +276,14 @@ fn account_usage_projection(
     meters
         .iter()
         .map(|meter| protocol::ClientShellAccountUsage {
+            budget: meter
+                .budget
+                .as_ref()
+                .map(|b| protocol::ClientShellSpendingBudget {
+                    suspended: b.suspended,
+                    daily: spending_window_projection(&b.daily),
+                    rolling_7d: spending_window_projection(&b.rolling_7d),
+                }),
             provider: meter.provider.label().to_owned(),
             plan_type: meter.plan_type.clone(),
             stale: meter.is_stale(now_unix),
@@ -294,6 +302,20 @@ fn account_usage_projection(
                 .collect(),
         })
         .collect()
+}
+
+fn spending_window_projection(
+    window: &crate::bedrock_usage::SpendingWindow,
+) -> protocol::ClientShellSpendingWindow {
+    let cents = |value: f64| (value * 100.0).round() as u64;
+    protocol::ClientShellSpendingWindow {
+        spent_cents: cents(window.spent_usd),
+        cap_cents: window.cap_usd.map(cents),
+        remaining_cents: window.remaining_usd.map(cents),
+        used_percent: window
+            .used_percent
+            .map(|n| n.round().clamp(0.0, 100.0) as u8),
+    }
 }
 
 pub(super) struct RenderedPaneSurface {

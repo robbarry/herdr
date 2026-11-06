@@ -146,6 +146,24 @@ fn account_usage_text(result: &serde_json::Value) -> String {
             ""
         };
         out.push_str(&format!("{provider}{plan}{stale}\n"));
+        if let Ok(budget) =
+            serde_json::from_value::<crate::bedrock_usage::SpendingBudget>(meter["budget"].clone())
+        {
+            if budget.suspended {
+                out.push_str("  suspended\n");
+            }
+            for (label, w) in [("day UTC", budget.daily), ("7d rolling", budget.rolling_7d)] {
+                let cap = w
+                    .cap_usd
+                    .map(|n| format!("${n:.2}"))
+                    .unwrap_or_else(|| "cap n/a".into());
+                let left = w
+                    .remaining_usd
+                    .map(|n| format!("${n:.2} left"))
+                    .unwrap_or_else(|| "remaining n/a".into());
+                out.push_str(&format!("  {label}: ${:.2} / {cap}, {left}\n", w.spent_usd));
+            }
+        }
         for window in meter["windows"].as_array().into_iter().flatten() {
             let label = window["label"].as_str().unwrap_or("-");
             let remaining = window["remaining_percent"].as_u64().unwrap_or(0);

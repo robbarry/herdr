@@ -20,14 +20,16 @@ struct ProviderPoll {
 }
 
 pub(crate) struct Runtime {
+    bedrock_command: Vec<String>,
     enabled: bool,
     generation: u64,
     providers: Vec<ProviderPoll>,
 }
 
 impl Runtime {
-    pub(super) fn new(enabled: bool) -> Self {
+    pub(super) fn new(enabled: bool, bedrock_command: Vec<String>) -> Self {
         let mut runtime = Self {
+            bedrock_command,
             enabled: false,
             generation: 0,
             providers: Vec::new(),
@@ -78,14 +80,27 @@ impl Drop for Runtime {
 
 impl App {
     /// Applies the config toggle. Returns true when the visible readings changed.
-    pub(crate) fn configure_account_usage(&mut self, enabled: bool) -> bool {
+    pub(crate) fn configure_account_usage(&mut self, enabled: bool, command: Vec<String>) -> bool {
         let enabled = enabled && self.policy.background_updates;
-        if enabled == self.usage_poll.enabled {
+        if enabled == self.usage_poll.enabled && command == self.usage_poll.bedrock_command {
             return false;
         }
+        let changed_command = command != self.usage_poll.bedrock_command;
+        self.usage_poll.bedrock_command = command;
         self.usage_poll.set_enabled(enabled, Instant::now());
+        let previous_count = self.state.account_usage.len();
+        if changed_command {
+            self.state
+                .account_usage
+                .retain(|m| m.provider != AccountUsageProvider::Bedrock);
+        }
         if !enabled && !self.state.account_usage.is_empty() {
             self.state.account_usage.clear();
+            self.render_dirty.request_generic();
+            self.render_notify.notify_one();
+            return true;
+        }
+        if self.state.account_usage.len() != previous_count {
             self.render_dirty.request_generic();
             self.render_notify.notify_one();
             return true;
@@ -105,8 +120,10 @@ impl App {
             }
             let event_tx = self.event_tx.clone();
             let provider = poll.provider;
+            let command = self.usage_poll.bedrock_command.clone();
             let task = tokio::spawn(async move {
-                let result = account_usage::fetch(provider, account_usage::unix_now()).await;
+                let result =
+                    account_usage::fetch(provider, account_usage::unix_now(), &command).await;
                 let _ = event_tx
                     .send(AppEvent::AccountUsageFetched {
                         generation,
@@ -151,7 +168,7 @@ impl App {
                 poll.announced = true;
                 poll.failures = 0;
                 poll.unavailable_logged = false;
-                poll.next_at = now + account_usage::POLL_INTERVAL;
+                poll.next_at = now + provider.poll_interval();
                 self.state.replace_account_usage(meter)
             }
             Err(FetchError::Unavailable(reason)) => {
@@ -241,6 +258,7 @@ mod tests {
     fn meter(provider: AccountUsageProvider, used: f64) -> AccountUsageMeter {
         AccountUsageMeter {
             provider,
+            budget: None,
             plan_type: None,
             windows: vec![AccountUsageWindow {
                 kind: "session".into(),
@@ -277,11 +295,47 @@ mod tests {
 
     #[test]
     fn disabled_runtime_schedules_nothing() {
-        let runtime = Runtime::new(false);
+        let runtime = Runtime::new(false, vec!["bedrock-usage".into()]);
         assert!(!runtime.enabled());
         assert!(runtime.providers.is_empty());
-        let runtime = Runtime::new(true);
+        let runtime = Runtime::new(true, vec!["bedrock-usage".into()]);
         assert!(runtime.enabled());
         assert_eq!(runtime.providers.len(), AccountUsageProvider::ALL.len());
+    }
+
+    #[test]
+    fn changed_command_clears_old_account_even_when_replacement_fails() {
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut policy = crate::app::AppPolicy::TEST;
+        policy.background_updates = true;
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            policy,
+            None,
+            rx,
+            crate::api::EventHub::default(),
+        );
+        app.state
+            .replace_account_usage(meter(AccountUsageProvider::Claude, 20.0));
+        app.state
+            .replace_account_usage(meter(AccountUsageProvider::Bedrock, 40.0));
+        let old_generation = app.usage_poll.generation;
+        assert!(app.configure_account_usage(true, vec!["replacement-command".into()]));
+        assert_eq!(app.state.account_usage.len(), 1);
+        assert_eq!(
+            app.state.account_usage[0].provider,
+            AccountUsageProvider::Claude
+        );
+        assert!(!app.handle_account_usage_fetched(
+            old_generation,
+            AccountUsageProvider::Bedrock,
+            Ok(meter(AccountUsageProvider::Bedrock, 40.0))
+        ));
+        app.handle_account_usage_fetched(
+            app.usage_poll.generation,
+            AccountUsageProvider::Bedrock,
+            Err(FetchError::Unavailable("missing".into())),
+        );
+        assert_eq!(app.state.account_usage.len(), 1);
     }
 }

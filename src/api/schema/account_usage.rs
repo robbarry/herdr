@@ -31,6 +31,8 @@ pub struct AccountUsageInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_type: Option<String>,
     pub windows: Vec<AccountUsageWindowInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<crate::bedrock_usage::SpendingBudget>,
     pub fetched_at_unix: u64,
     /// True when the reading is older than the freshness window or the last
     /// poll failed long enough ago that the numbers may no longer hold.
@@ -41,6 +43,7 @@ pub struct AccountUsageInfo {
 impl AccountUsageInfo {
     pub fn from_meter(meter: &crate::account_usage::AccountUsageMeter, now_unix: u64) -> Self {
         Self {
+            budget: meter.budget.clone(),
             provider: meter.provider,
             plan_type: meter.plan_type.clone(),
             windows: meter

@@ -46,17 +46,22 @@ impl Default for UpdateConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct AccountUsageConfig {
     /// Poll the server owner's Claude and Codex subscription usage in the
     /// background so clients can show remaining capacity.
     pub enabled: bool,
+    /// Program and optional arguments; Herdr appends `--json`. Never a shell string.
+    pub bedrock_command: Vec<String>,
 }
 
 impl Default for AccountUsageConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            bedrock_command: vec!["bedrock-usage".into()],
+        }
     }
 }
 
