@@ -342,15 +342,21 @@ Herdr polls your own Claude and Codex subscription usage in the background and s
 ```toml
 [account_usage]
 enabled = true
-# Program plus optional arguments; Herdr appends --json (no shell evaluation).
-bedrock_command = ["bedrock-usage"]
+# Argv arrays, run without shell evaluation. An empty array turns that source off.
+bedrock_hub_command = ["bedrock-usage", "--json"]
+bedrock_cap_command = ["bedrock-cap", "status", "--json"]
 ```
 
 Polling runs on the Herdr server every 4 minutes, backing off after failures. Claude is read through the Claude Code login on the server machine (the credentials file, then the macOS Keychain item) using the same usage endpoint Claude Code's `/usage` shows. Codex is read through `codex app-server`, which authenticates from its own stored login. No model call is made, and no token is logged, stored, or passed on a command line. A provider that cannot be read on the server machine is simply absent from the panel. Set `enabled = false` to turn polling off; the panel then disappears. The same readings are available from `herdr api usage` and the `account_usage.get` socket method.
 
-Bedrock spending appears below Codex when `bedrock-usage --json` is available on the server. It is polled every **5 minutes**, independently of the subscription meters. Two compact bars show the daily and rolling seven-day used percentages. The `day` row shows time until midnight UTC; the `week` row leaves that space blank, because it has no single reset time. Both bars have the same width. Dollar amounts, caps and remaining dollars remain available through `herdr api usage`, but do not take extra sidebar rows. The source's suspended flag is displayed; no spending limits or credentials are changed. Freshness checks include `lastSyncAt`, so old upstream data remains marked stale even after a successful poll.
+Bedrock spend caps appear below Codex, polled every **5 minutes** independently of the subscription meters. Herdr reads two sources and shows one bar per capped key, labeled with the beginning of the key's name:
 
-The command must work in the server's environment, not just in an interactive shell. `bedrock_command` is an argv array for an executable and optional arguments; it can use absolute paths when needed. For a Node-based installation, for example, `["/absolute/path/to/node", "/absolute/path/to/cli.js"]` avoids relying on interactive NVM setup. Do not put credentials in this array. The CLI keeps responsibility for authenticating with its own configuration. A failed poll retains the previous reading and backs off; unavailable commands are not replaced with a zero balance.
+- `bedrock_hub_command` prints DJ's Bedrock Access Hub snapshot for the per-user DJ key. Its daily cap shows as `dj`, and a capped rolling window as `dj 7d` or `dj 28d`. The hub's suspended flag marks these bars denied.
+- `bedrock_cap_command` prints one JSON object per line, one per landing-zone cap (`cap`, `spend_usd`, `cap_usd`, `denied`, `as_of`). Each cap is a daily bar under its own name.
+
+Each bar fills with the share of its cap spent. Daily bars carry a tick for how far into the UTC day it is and use the same pace colors as the subscription meters; a denied key is red. The time until midnight UTC appears once on the `bedrock` header. Labels are cut to a third of the sidebar width, and every bar has the same width as the subscription bars. Dollar amounts remain available through `herdr api usage`. Nothing changes any cap or credential. When one source fails the other's bars still show; freshness uses the older source timestamp, so old upstream data stays marked stale even after a successful poll.
+
+Both commands must work in the server's environment, not just in an interactive shell. They are argv arrays and can use absolute paths, or `/usr/bin/env PATH=...` when the server lacks the interactive PATH. Do not put credentials in them; each CLI authenticates with its own configuration. A failed poll retains the previous reading and backs off; unavailable commands are not replaced with a zero balance.
 
 ### Outer terminal window title
 

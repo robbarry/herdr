@@ -190,13 +190,13 @@ pub fn remaining_percent(used_percent: f64) -> u8 {
 pub async fn fetch(
     provider: AccountUsageProvider,
     now_unix: u64,
-    bedrock_command: &[String],
+    bedrock_commands: &crate::bedrock_usage::Commands,
 ) -> Result<AccountUsageMeter, FetchError> {
     match provider {
         AccountUsageProvider::Claude => fetch_claude(now_unix).await,
         AccountUsageProvider::Codex => fetch_codex(now_unix).await,
         AccountUsageProvider::Bedrock => {
-            crate::bedrock_usage::fetch(bedrock_command, now_unix).await
+            crate::bedrock_usage::fetch(bedrock_commands, now_unix).await
         }
     }
 }

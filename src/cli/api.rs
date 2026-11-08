@@ -149,19 +149,21 @@ fn account_usage_text(result: &serde_json::Value) -> String {
         if let Ok(budget) =
             serde_json::from_value::<crate::bedrock_usage::SpendingBudget>(meter["budget"].clone())
         {
-            if budget.suspended {
-                out.push_str("  suspended\n");
-            }
-            for (label, w) in [("day UTC", budget.daily), ("7d rolling", budget.rolling_7d)] {
-                let cap = w
+            for key in budget.keys {
+                let window = if key.window_days == 1 {
+                    "UTC day".to_owned()
+                } else {
+                    format!("{}d rolling", key.window_days)
+                };
+                let cap = key
                     .cap_usd
                     .map(|n| format!("${n:.2}"))
-                    .unwrap_or_else(|| "cap n/a".into());
-                let left = w
-                    .remaining_usd
-                    .map(|n| format!("${n:.2} left"))
-                    .unwrap_or_else(|| "remaining n/a".into());
-                out.push_str(&format!("  {label}: ${:.2} / {cap}, {left}\n", w.spent_usd));
+                    .unwrap_or_else(|| "no cap".into());
+                let denied = if key.denied { ", denied" } else { "" };
+                out.push_str(&format!(
+                    "  {} ({window}): ${:.2} / {cap}{denied}\n",
+                    key.label, key.spent_usd
+                ));
             }
         }
         for window in meter["windows"].as_array().into_iter().flatten() {

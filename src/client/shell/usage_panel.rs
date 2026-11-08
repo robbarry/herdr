@@ -5,6 +5,10 @@
 //! a tick at "now" and colored by whether usage runs behind, at, or ahead of
 //! the window, and the time until the window resets when the sidebar is wide
 //! enough. Stale readings render dimmed so a paused poller is visible.
+//!
+//! Bedrock spend caps get one bar per capped key, labeled with the beginning
+//! of the key's name. The UTC-midnight countdown they share sits once on the
+//! provider header, so every key bar keeps the same width.
 
 use ratatui::{
     buffer::Buffer,
@@ -32,7 +36,8 @@ enum UsageRow<'a> {
         name: &'a str,
         plan_type: Option<&'a str>,
         stale: bool,
-        suspended: bool,
+        /// Show the shared UTC-midnight reset for daily spend caps.
+        daily_reset: bool,
     },
     Window {
         label: &'a str,
@@ -43,8 +48,8 @@ enum UsageRow<'a> {
         stale: bool,
     },
     BudgetBar {
-        label: &'static str,
-        window: &'a crate::protocol::ClientShellSpendingWindow,
+        label: &'a str,
+        key: &'a crate::protocol::ClientShellSpendingKey,
         stale: bool,
     },
 }
@@ -59,7 +64,10 @@ fn rows(snapshot: &ClientShellSnapshot) -> Vec<UsageRow<'_>> {
                 name: &meter.provider,
                 plan_type: meter.plan_type.as_deref(),
                 stale: meter.stale,
-                suspended: meter.budget.as_ref().is_some_and(|b| b.suspended),
+                daily_reset: meter
+                    .budget
+                    .as_ref()
+                    .is_some_and(|b| b.keys.iter().any(|k| k.window_days == 1)),
             })
             .chain(
                 meter
@@ -76,13 +84,11 @@ fn rows(snapshot: &ClientShellSnapshot) -> Vec<UsageRow<'_>> {
                     }),
             )
             .chain(meter.budget.iter().flat_map(move |budget| {
-                [("day", &budget.daily), ("week", &budget.rolling_7d)]
-                    .into_iter()
-                    .map(move |(label, window)| UsageRow::BudgetBar {
-                        label,
-                        window,
-                        stale: meter.stale,
-                    })
+                budget.keys.iter().map(move |key| UsageRow::BudgetBar {
+                    label: &key.label,
+                    key,
+                    stale: meter.stale,
+                })
             }))
         })
         .take(MAX_ROWS)
@@ -269,7 +275,7 @@ pub(super) fn render(
                 name,
                 plan_type,
                 stale,
-                suspended,
+                daily_reset,
             } => {
                 put_text(
                     buffer,
@@ -288,20 +294,18 @@ pub(super) fn render(
                         buffer,
                         row_rect,
                         y,
-                        if *suspended {
-                            "suspended stale"
-                        } else {
-                            "stale"
-                        },
+                        "stale",
                         Style::default().fg(palette.yellow),
                     );
-                } else if *suspended {
+                } else if *daily_reset {
                     put_right_text(
                         buffer,
                         row_rect,
                         y,
-                        "suspended",
-                        Style::default().fg(palette.red),
+                        &crate::account_usage::format_countdown(seconds_until_utc_midnight(
+                            now_unix,
+                        )),
+                        Style::default().fg(palette.subtext0),
                     );
                 } else if let Some(plan) = plan_type {
                     put_right_text(
@@ -313,45 +317,30 @@ pub(super) fn render(
                     );
                 }
             }
-            UsageRow::BudgetBar {
-                label,
-                window,
-                stale,
-            } => {
-                let elapsed = (*label == "day")
+            UsageRow::BudgetBar { label, key, stale } => {
+                let elapsed = (key.window_days == 1)
                     .then(|| 1.0 - seconds_until_utc_midnight(now_unix) as f64 / 86_400.0);
-                let style =
-                    Style::default().fg(window.used_percent.map_or(palette.overlay0, |used| {
+                let color = if key.denied && !*stale {
+                    palette.red
+                } else {
+                    key.used_percent.map_or(palette.overlay0, |used| {
                         pace_color(pace(100 - used.min(100), elapsed, None), *stale, palette)
-                    }));
+                    })
+                };
+                let style = Style::default().fg(color);
                 let x = row_rect.x + 2;
                 put_text(buffer, x, y, label_width, label, style);
                 let bar_x = x + label_width + 1;
-                // Reserve the same countdown column for both bars. The rolling
-                // week has no single reset, so leave its column blank.
-                let hint =
-                    crate::account_usage::format_countdown(seconds_until_utc_midnight(now_unix));
-                let hint_width = display_width(&hint);
+                // Leave the countdown column the subscription rows use blank,
+                // so every bar in the panel lines up.
+                let hint_width = 3;
                 let room = row_rect.right().saturating_sub(bar_x);
                 let width = if room >= MIN_BAR_WIDTH + 1 + hint_width {
-                    if *label == "day" {
-                        put_right_text(
-                            buffer,
-                            row_rect,
-                            y,
-                            &hint,
-                            Style::default().fg(if *stale {
-                                palette.overlay0
-                            } else {
-                                palette.subtext0
-                            }),
-                        );
-                    }
                     room - hint_width - 1
                 } else {
                     room
                 } as usize;
-                if let Some(used) = window.used_percent {
+                if let Some(used) = key.used_percent {
                     let filled = width * usize::from(used.min(100)) / 100;
                     let bar = format!("{}{}", FILLED.repeat(filled), EMPTY.repeat(width - filled));
                     put_text(buffer, bar_x, y, width as u16, &bar, style);
@@ -373,7 +362,7 @@ pub(super) fn render(
                         }
                     }
                 } else {
-                    put_text(buffer, bar_x, y, width as u16, "n/a", style);
+                    put_text(buffer, bar_x, y, width as u16, "no cap", style);
                 }
             }
             UsageRow::Window {
@@ -558,8 +547,24 @@ mod tests {
             .collect::<String>()
     }
 
+    fn spend_key(
+        label: &str,
+        window_days: u16,
+        used: u8,
+        denied: bool,
+    ) -> crate::protocol::ClientShellSpendingKey {
+        crate::protocol::ClientShellSpendingKey {
+            label: label.into(),
+            window_days,
+            spent_cents: u64::from(used) * 300,
+            cap_cents: Some(30_000),
+            used_percent: Some(used),
+            denied,
+        }
+    }
+
     #[test]
-    fn budget_rows_follow_codex_with_countdown_and_no_amount_lines() {
+    fn spend_caps_show_one_bar_per_key_labeled_by_its_name() {
         let mut meters = meters();
         meters.push(ClientShellAccountUsage {
             provider: "bedrock".into(),
@@ -567,19 +572,12 @@ mod tests {
             stale: false,
             windows: vec![],
             budget: Some(crate::protocol::ClientShellSpendingBudget {
-                suspended: true,
-                daily: crate::protocol::ClientShellSpendingWindow {
-                    spent_cents: 30021,
-                    cap_cents: Some(30000),
-                    remaining_cents: Some(0),
-                    used_percent: Some(100),
-                },
-                rolling_7d: crate::protocol::ClientShellSpendingWindow {
-                    spent_cents: 96073,
-                    cap_cents: Some(105000),
-                    remaining_cents: Some(8927),
-                    used_percent: Some(91),
-                },
+                keys: vec![
+                    spend_key("dj", 1, 100, true),
+                    spend_key("dj 7d", 7, 91, true),
+                    spend_key("reporter-key", 1, 30, false),
+                    spend_key("rob-agents", 1, 12, false),
+                ],
             }),
         });
         let snapshot = snapshot(meters);
@@ -595,63 +593,62 @@ mod tests {
         assert_eq!(seconds_until_utc_midnight(0), 86_400);
         assert_eq!(seconds_until_utc_midnight(86_399), 1);
         assert_eq!(seconds_until_utc_midnight(86_400), 86_400);
-        assert_eq!(
-            rows.iter()
-                .filter(|r| matches!(r, UsageRow::BudgetBar { .. }))
-                .count(),
-            2
-        );
-        assert!(rows
-            .iter()
-            .any(|r| matches!(r, UsageRow::BudgetBar { label: "week", .. })));
+        assert_eq!(panel_height(&snapshot), HEADER_ROWS + 10 + TOGGLE_ROWS);
+
+        let config = config();
         let area = Rect::new(0, 0, 26, panel_height(&snapshot));
         let mut buffer = Buffer::empty(area);
-        render(&mut buffer, area, &snapshot, &config(), 22 * 3600);
-        let text = (0..area.height)
+        render(&mut buffer, area, &snapshot, &config, 22 * 3600);
+        let lines: Vec<_> = (0..area.height)
             .map(|y| row_text(&buffer, y, area.width))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(text.contains("suspended"), "{text}");
-        assert!(!text.contains('$') && !text.contains("left"), "{text}");
+            .collect();
+        let text = lines.join("\n");
+        // Key names replace the old day/week labels; amounts stay out.
+        let bedrock_text = text.split(" bedrock").nth(1).unwrap();
         assert!(
-            text.lines()
-                .any(|line| line.contains("day") && line.trim_end().ends_with("2h")),
+            !text.contains('$') && !bedrock_text.contains("day") && !bedrock_text.contains("week"),
             "{text}"
         );
-        assert!(!text.contains("rolling"), "{text}");
-        let day = text
-            .lines()
-            .find(|line| line.trim_start().starts_with("day "))
+        // The shared reset sits once, on the provider header.
+        let header = lines
+            .iter()
+            .position(|l| l.starts_with(" bedrock"))
             .unwrap();
-        let week = text
-            .lines()
-            .rfind(|line| line.trim_start().starts_with("week "))
-            .unwrap();
+        assert!(lines[header].trim_end().ends_with("2h"), "{text}");
+        assert_eq!(text.matches("2h").count(), 2, "{text}"); // claude 5h + bedrock header
+                                                             // Labels are the beginning of each key's name, cut to a third of the width.
+        for label in ["dj ", "dj 7d", "reporter", "rob-agen"] {
+            assert!(
+                lines.iter().any(|l| l.trim_start().starts_with(label)),
+                "missing {label}: {text}"
+            );
+        }
         let bar_columns = |line: &str| {
             line.chars()
                 .enumerate()
                 .filter_map(|(i, c)| matches!(c, '█' | '░' | '│').then_some(i))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(bar_columns(day), bar_columns(week));
-        assert!(week.trim_end().ends_with('░'), "{week}");
-        assert_eq!(panel_height(&snapshot), HEADER_ROWS + 8 + TOGGLE_ROWS);
-        let (_, compact) = reserve(Rect::new(0, 0, 26, 24), &snapshot);
-        assert!(!compact.is_empty());
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 26, 24));
-        render(&mut buffer, compact, &snapshot, &config(), 86_340);
-        let text = (0..24)
-            .map(|y| row_text(&buffer, y, 26))
-            .collect::<Vec<_>>()
-            .join("\n");
-        for label in ["claude", "codex", "bedrock", "day", "week"] {
-            assert!(text.contains(label), "missing {label}: {text}");
+        let keys = &lines[header + 1..header + 5];
+        for line in keys {
+            assert_eq!(bar_columns(line), bar_columns(&keys[0]), "{text}");
         }
-        assert!(
-            text.lines()
-                .any(|line| line.contains("day") && line.trim_end().ends_with("1m")),
+        // Subscription bars line up with the key bars too.
+        assert_eq!(
+            bar_columns(&lines[3]).last(),
+            bar_columns(&keys[0]).last(),
             "{text}"
         );
+        // A denied key is red; only daily keys carry the "now" tick.
+        let dj_y = (header + 1) as u16;
+        assert_eq!(buffer[(2, dj_y)].style().fg, Some(config.palette.red));
+        assert!(keys[0].contains(TICK) && !keys[1].contains(TICK), "{text}");
+        let rob_y = (header + 4) as u16;
+        assert_eq!(buffer[(2, rob_y)].style().fg, Some(config.palette.green));
+
+        // Short sidebars drop the Bedrock section before subscription meters.
+        let (_, compact) = reserve(Rect::new(0, 0, 26, 24), &snapshot);
+        assert_eq!(compact.height, HEADER_ROWS + 5 + TOGGLE_ROWS);
     }
 
     #[test]

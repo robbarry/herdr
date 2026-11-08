@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 24,
+  "protocol": 25,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -10779,30 +10779,26 @@
         },
         "SpendingBudget": {
           "properties": {
-            "daily": {
-              "$ref": "#/schemas/success_response/$defs/SpendingWindow"
-            },
             "data_updated_at_unix": {
+              "description": "Oldest source timestamp among the sources that answered.",
               "format": "uint64",
               "minimum": 0,
               "type": "integer"
             },
-            "rolling_7d": {
-              "$ref": "#/schemas/success_response/$defs/SpendingWindow"
-            },
-            "suspended": {
-              "type": "boolean"
+            "keys": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/SpendingKey"
+              },
+              "type": "array"
             }
           },
           "required": [
-            "daily",
-            "rolling_7d",
-            "suspended",
+            "keys",
             "data_updated_at_unix"
           ],
           "type": "object"
         },
-        "SpendingWindow": {
+        "SpendingKey": {
           "properties": {
             "cap_usd": {
               "format": "double",
@@ -10811,27 +10807,31 @@
                 "null"
               ]
             },
-            "remaining_usd": {
-              "format": "double",
-              "type": [
-                "number",
-                "null"
-              ]
+            "denied": {
+              "description": "The cap system has cut this key off.",
+              "type": "boolean"
+            },
+            "label": {
+              "description": "Key or cap name; clients show its beginning.",
+              "type": "string"
             },
             "spent_usd": {
               "format": "double",
               "type": "number"
             },
-            "used_percent": {
-              "format": "double",
-              "type": [
-                "number",
-                "null"
-              ]
+            "window_days": {
+              "description": "Length of the capped window: 1 is the UTC day, more is rolling.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
             }
           },
           "required": [
-            "spent_usd"
+            "label",
+            "window_days",
+            "spent_usd",
+            "denied"
           ],
           "type": "object"
         },

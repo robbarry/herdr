@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 24;
+pub const PROTOCOL_VERSION: u32 = 25;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -968,17 +968,19 @@ pub struct ClientShellAccountUsage {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientShellSpendingBudget {
-    pub suspended: bool,
-    pub daily: ClientShellSpendingWindow,
-    pub rolling_7d: ClientShellSpendingWindow,
+    pub keys: Vec<ClientShellSpendingKey>,
 }
 
+/// One capped Bedrock key and window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientShellSpendingWindow {
+pub struct ClientShellSpendingKey {
+    pub label: String,
+    /// 1 is the UTC day; longer windows are rolling and have no single reset.
+    pub window_days: u16,
     pub spent_cents: u64,
     pub cap_cents: Option<u64>,
-    pub remaining_cents: Option<u64>,
     pub used_percent: Option<u8>,
+    pub denied: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

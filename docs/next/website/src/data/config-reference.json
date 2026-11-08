@@ -488,10 +488,16 @@
           "description": "Poll your own Claude and Codex subscription usage on the server in the background and show each rate-limit window in the sidebar usage footer as a bar of the share used with a tick for how far into the window you are, colored by whether usage is behind, at, or ahead of that pace, with the time until reset. Claude is read through the Claude Code login on the server machine; Codex through codex app-server. No model calls are made and no tokens are logged or stored."
         },
         {
-          "key": "account_usage.bedrock_command",
+          "key": "account_usage.bedrock_hub_command",
           "type": "array",
-          "default": "[\"bedrock-usage\"]",
-          "description": "Program and optional arguments for Bedrock spending reads; Herdr appends --json without shell evaluation. Polled every five minutes. Use absolute executable/interpreter paths if the server lacks the interactive shell PATH. Never include credentials."
+          "default": "[\"bedrock-usage\", \"--json\"]",
+          "description": "Argv printing DJ's Bedrock Access Hub snapshot for the per-user DJ key, run without shell evaluation every five minutes. Shown as dj and capped rolling windows such as dj 7d. Empty turns the source off. Never include credentials."
+        },
+        {
+          "key": "account_usage.bedrock_cap_command",
+          "type": "array",
+          "default": "[\"bedrock-cap\", \"status\", \"--json\"]",
+          "description": "Argv printing one JSON object per landing-zone spend cap (cap, spend_usd, cap_usd, denied, as_of), run without shell evaluation every five minutes. Each cap shows as a daily bar labeled with the beginning of its name. Empty turns the source off. Never include credentials."
         }
       ]
     },

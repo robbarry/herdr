@@ -20,16 +20,16 @@ struct ProviderPoll {
 }
 
 pub(crate) struct Runtime {
-    bedrock_command: Vec<String>,
+    bedrock_commands: crate::bedrock_usage::Commands,
     enabled: bool,
     generation: u64,
     providers: Vec<ProviderPoll>,
 }
 
 impl Runtime {
-    pub(super) fn new(enabled: bool, bedrock_command: Vec<String>) -> Self {
+    pub(super) fn new(enabled: bool, bedrock_commands: crate::bedrock_usage::Commands) -> Self {
         let mut runtime = Self {
-            bedrock_command,
+            bedrock_commands,
             enabled: false,
             generation: 0,
             providers: Vec::new(),
@@ -80,13 +80,17 @@ impl Drop for Runtime {
 
 impl App {
     /// Applies the config toggle. Returns true when the visible readings changed.
-    pub(crate) fn configure_account_usage(&mut self, enabled: bool, command: Vec<String>) -> bool {
+    pub(crate) fn configure_account_usage(
+        &mut self,
+        enabled: bool,
+        commands: crate::bedrock_usage::Commands,
+    ) -> bool {
         let enabled = enabled && self.policy.background_updates;
-        if enabled == self.usage_poll.enabled && command == self.usage_poll.bedrock_command {
+        if enabled == self.usage_poll.enabled && commands == self.usage_poll.bedrock_commands {
             return false;
         }
-        let changed_command = command != self.usage_poll.bedrock_command;
-        self.usage_poll.bedrock_command = command;
+        let changed_command = commands != self.usage_poll.bedrock_commands;
+        self.usage_poll.bedrock_commands = commands;
         self.usage_poll.set_enabled(enabled, Instant::now());
         let previous_count = self.state.account_usage.len();
         if changed_command {
@@ -120,10 +124,10 @@ impl App {
             }
             let event_tx = self.event_tx.clone();
             let provider = poll.provider;
-            let command = self.usage_poll.bedrock_command.clone();
+            let commands = self.usage_poll.bedrock_commands.clone();
             let task = tokio::spawn(async move {
                 let result =
-                    account_usage::fetch(provider, account_usage::unix_now(), &command).await;
+                    account_usage::fetch(provider, account_usage::unix_now(), &commands).await;
                 let _ = event_tx
                     .send(AppEvent::AccountUsageFetched {
                         generation,
@@ -295,10 +299,10 @@ mod tests {
 
     #[test]
     fn disabled_runtime_schedules_nothing() {
-        let runtime = Runtime::new(false, vec!["bedrock-usage".into()]);
+        let runtime = Runtime::new(false, Default::default());
         assert!(!runtime.enabled());
         assert!(runtime.providers.is_empty());
-        let runtime = Runtime::new(true, vec!["bedrock-usage".into()]);
+        let runtime = Runtime::new(true, Default::default());
         assert!(runtime.enabled());
         assert_eq!(runtime.providers.len(), AccountUsageProvider::ALL.len());
     }
@@ -320,7 +324,13 @@ mod tests {
         app.state
             .replace_account_usage(meter(AccountUsageProvider::Bedrock, 40.0));
         let old_generation = app.usage_poll.generation;
-        assert!(app.configure_account_usage(true, vec!["replacement-command".into()]));
+        assert!(app.configure_account_usage(
+            true,
+            crate::bedrock_usage::Commands {
+                hub: vec!["replacement-command".into()],
+                caps: Vec::new(),
+            }
+        ));
         assert_eq!(app.state.account_usage.len(), 1);
         assert_eq!(
             app.state.account_usage[0].provider,

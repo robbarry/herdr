@@ -280,9 +280,7 @@ fn account_usage_projection(
                 .budget
                 .as_ref()
                 .map(|b| protocol::ClientShellSpendingBudget {
-                    suspended: b.suspended,
-                    daily: spending_window_projection(&b.daily),
-                    rolling_7d: spending_window_projection(&b.rolling_7d),
+                    keys: b.keys.iter().map(spending_key_projection).collect(),
                 }),
             provider: meter.provider.label().to_owned(),
             plan_type: meter.plan_type.clone(),
@@ -304,17 +302,20 @@ fn account_usage_projection(
         .collect()
 }
 
-fn spending_window_projection(
-    window: &crate::bedrock_usage::SpendingWindow,
-) -> protocol::ClientShellSpendingWindow {
+fn spending_key_projection(
+    key: &crate::bedrock_usage::SpendingKey,
+) -> protocol::ClientShellSpendingKey {
     let cents = |value: f64| (value * 100.0).round() as u64;
-    protocol::ClientShellSpendingWindow {
-        spent_cents: cents(window.spent_usd),
-        cap_cents: window.cap_usd.map(cents),
-        remaining_cents: window.remaining_usd.map(cents),
-        used_percent: window
-            .used_percent
-            .map(|n| n.round().clamp(0.0, 100.0) as u8),
+    protocol::ClientShellSpendingKey {
+        label: key.label.clone(),
+        window_days: key.window_days,
+        spent_cents: cents(key.spent_usd),
+        cap_cents: key.cap_usd.map(cents),
+        used_percent: key
+            .cap_usd
+            .filter(|cap| *cap > 0.0)
+            .map(|cap| (key.spent_usd / cap * 100.0).round().clamp(0.0, 100.0) as u8),
+        denied: key.denied,
     }
 }
 

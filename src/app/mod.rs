@@ -683,7 +683,7 @@ impl App {
             next_tab_bar_datetime_refresh: None,
             usage_poll: usage_poll::Runtime::new(
                 policy.background_updates && config.account_usage.enabled,
-                config.account_usage.bedrock_command.clone(),
+                config.account_usage.bedrock_commands(),
             ),
             window_title_template: None,
             persist_pane_history: config.experimental.pane_history,
@@ -954,7 +954,7 @@ impl App {
         if !invalid_section("account_usage") {
             self.configure_account_usage(
                 config.account_usage.enabled,
-                config.account_usage.bedrock_command.clone(),
+                config.account_usage.bedrock_commands(),
             );
         }
 

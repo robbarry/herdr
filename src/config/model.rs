@@ -52,15 +52,29 @@ pub struct AccountUsageConfig {
     /// Poll the server owner's Claude and Codex subscription usage in the
     /// background so clients can show remaining capacity.
     pub enabled: bool,
-    /// Program and optional arguments; Herdr appends `--json`. Never a shell string.
-    pub bedrock_command: Vec<String>,
+    /// Argv printing DJ's Bedrock Access Hub snapshot (`bedrock-usage --json`).
+    /// Never a shell string; empty disables this source.
+    pub bedrock_hub_command: Vec<String>,
+    /// Argv printing the landing-zone spend caps, one JSON object per line
+    /// (`bedrock-cap status --json`). Empty disables this source.
+    pub bedrock_cap_command: Vec<String>,
+}
+
+impl AccountUsageConfig {
+    pub fn bedrock_commands(&self) -> crate::bedrock_usage::Commands {
+        crate::bedrock_usage::Commands {
+            hub: self.bedrock_hub_command.clone(),
+            caps: self.bedrock_cap_command.clone(),
+        }
+    }
 }
 
 impl Default for AccountUsageConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            bedrock_command: vec!["bedrock-usage".into()],
+            bedrock_hub_command: vec!["bedrock-usage".into(), "--json".into()],
+            bedrock_cap_command: vec!["bedrock-cap".into(), "status".into(), "--json".into()],
         }
     }
 }
